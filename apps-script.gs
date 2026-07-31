@@ -1,12 +1,12 @@
 // Expense Hub Mobile -- Apps Script Web App
 // Paste this whole file into Extensions > Apps Script on the Google Sheet
-// created for mobile capture. Deploy > New deployment > Web app >
-// Execute as: Me, Who has access: Anyone, then copy the deployment URL
-// into the mobile page's Settings screen.
+// created for mobile capture. Deploy > Manage deployments > edit (pencil)
+// > Version: New version > Deploy, so the URL you already pasted into the
+// phone's Settings keeps working. Only use "New deployment" the first time.
 //
 // Sheet columns (row 1, exact order):
 // Timestamp | LocalId | ReportType | ReportName | Date | Category |
-// Amount | Currency | Description | PaidWith | PhotoUrl
+// Amount | Currency | Description | PaidWith | PhotoUrls
 
 var SHEET_NAME = 'MobileCaptures';
 var DRIVE_FOLDER_NAME = 'Expense Hub Mobile Receipts';
@@ -18,19 +18,9 @@ function doPost(e) {
     var data = JSON.parse(e.postData.contents);
     var sheet = getOrCreateSheet();
 
-    // Same LocalId arriving twice (a retried sync after a dropped
-    // response) must not create a duplicate row.
-    var existing = findRowByLocalId(sheet, data.localId);
-    if (existing) {
-      return respond({ ok: true, duplicate: true });
-    }
+    var photoUrls = savePhotos(data.photos);
 
-    var photoUrl = '';
-    if (data.photoBase64 && data.photoName) {
-      photoUrl = savePhoto(data.photoBase64, data.photoName);
-    }
-
-    sheet.appendRow([
+    var row = [
       new Date(),
       data.localId || '',
       data.reportType || '',
@@ -41,10 +31,22 @@ function doPost(e) {
       data.currency || '',
       data.description || '',
       data.paidWith || '',
-      photoUrl
-    ]);
+      photoUrls.join(', ')
+    ];
 
-    return respond({ ok: true, duplicate: false });
+    // A phone can re-send a localId it already sent once, either as a
+    // retried sync (dropped response) or because the user opened it from
+    // the Queue and changed something -- either way, the sheet must end
+    // up with one row that matches what the phone last saved, not a
+    // silent no-op.
+    var existingRow = findRowByLocalId(sheet, data.localId);
+    if (existingRow) {
+      sheet.getRange(existingRow, 1, 1, row.length).setValues([row]);
+      return respond({ ok: true, updated: true });
+    }
+
+    sheet.appendRow(row);
+    return respond({ ok: true, updated: false });
   } catch (err) {
     return respond({ ok: false, error: String(err) });
   } finally {
@@ -88,7 +90,7 @@ function getOrCreateSheet() {
     sheet = ss.insertSheet(SHEET_NAME);
     sheet.appendRow([
       'Timestamp', 'LocalId', 'ReportType', 'ReportName', 'Date',
-      'Category', 'Amount', 'Currency', 'Description', 'PaidWith', 'PhotoUrl'
+      'Category', 'Amount', 'Currency', 'Description', 'PaidWith', 'PhotoUrls'
     ]);
   }
   return sheet;
@@ -96,23 +98,31 @@ function getOrCreateSheet() {
 
 function findRowByLocalId(sheet, localId) {
   if (!localId) return null;
-  var values = sheet.getRange(1, 2, sheet.getLastRow(), 1).getValues();
-  for (var i = 1; i < values.length; i++) {
-    if (values[i][0] === localId) return i + 1;
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return null;
+  var values = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
+  for (var i = 0; i < values.length; i++) {
+    if (values[i][0] === localId) return i + 2;
   }
   return null;
 }
 
-function savePhoto(base64, name) {
+function savePhotos(photos) {
+  if (!photos || !photos.length) return [];
   var folders = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME);
   var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(DRIVE_FOLDER_NAME);
-  var parts = base64.split(',');
-  var meta = parts[0];
-  var raw = parts[1] || parts[0];
-  var mime = (meta.match(/data:(.*);base64/) || [null, 'image/jpeg'])[1];
-  var blob = Utilities.newBlob(Utilities.base64Decode(raw), mime, name);
-  var file = folder.createFile(blob);
-  return file.getUrl();
+  var urls = [];
+  photos.forEach(function(p) {
+    if (!p.base64 || !p.name) return;
+    var parts = p.base64.split(',');
+    var meta = parts[0];
+    var raw = parts[1] || parts[0];
+    var mime = (meta.match(/data:(.*);base64/) || [null, 'image/jpeg'])[1];
+    var blob = Utilities.newBlob(Utilities.base64Decode(raw), mime, p.name);
+    var file = folder.createFile(blob);
+    urls.push(file.getUrl());
+  });
+  return urls;
 }
 
 function respond(obj) {

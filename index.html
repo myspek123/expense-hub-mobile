@@ -7,7 +7,7 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
-  :root { --navy: #1F3864; --line: #d8e0ea; --muted: #687386; --amber: #9a6700; --amber-bg: #fff0cf; --green: #187747; --green-bg: #e5f6ec; }
+  :root { --navy: #1F3864; --line: #d8e0ea; --muted: #687386; --amber: #9a6700; --amber-bg: #fff0cf; --green: #187747; --green-bg: #e5f6ec; --danger: #b42318; }
   * { box-sizing: border-box; }
   body { margin: 0; font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f6fa; color: #182235; }
   header { background: var(--navy); color: #fff; padding: 14px 16px; }
@@ -20,6 +20,7 @@
   .field { margin-bottom: 14px; }
   .field label { display: block; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
   input, select, textarea { width: 100%; height: 40px; padding: 8px 10px; font-size: 14px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: #182235; }
+  .field.bad input, .field.bad select { border-color: var(--danger); background: #fff6f5; }
   textarea { height: 70px; resize: vertical; }
   .row { display: flex; gap: 12px; }
   .row .field { flex: 1; min-width: 0; }
@@ -27,14 +28,27 @@
   .chip { padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: #fff; font-size: 13px; }
   .chip.on { background: var(--navy); border-color: var(--navy); color: #fff; }
   .chiprow { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
-  .attach-tile {
+  label.attach-tile {
     display: flex; align-items: center; justify-content: center;
     height: 44px; width: 44px; flex: 0 0 44px; padding: 0;
-    border: 1.5px dashed #c7d3e3; border-radius: 9px; background: #fafbfd; margin-top: 6px;
+    border: 1.5px dashed #c7d3e3; border-radius: 9px; background: #fafbfd; margin-top: 0;
   }
-  .attach-tile input { display: none; }
-  .attach-tile svg { width: 20px; height: 20px; stroke: var(--muted); }
-  .attach-thumb { height: 44px; width: 44px; object-fit: cover; border-radius: 9px; border: 1px solid var(--line); margin-top: 6px; flex-shrink: 0; }
+  label.attach-tile input { display: none; }
+  label.attach-tile svg { width: 20px; height: 20px; stroke: var(--muted); display: block; }
+  .attach-strip { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .attach-thumb-wrap { position: relative; width: 44px; height: 44px; }
+  .attach-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 9px; border: 1px solid var(--line); display: block; }
+  .attach-remove {
+    position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%;
+    border: 1px solid var(--line); background: #fff; color: var(--danger); font-size: 12px; line-height: 1; padding: 0;
+  }
+  .combo { position: relative; }
+  .combo-list {
+    position: absolute; z-index: 15; top: calc(100% + 2px); left: 0; right: 0; max-height: 180px; overflow-y: auto;
+    background: #fff; border: 1px solid var(--line); border-radius: 7px; box-shadow: 0 8px 20px rgba(16,22,34,.14);
+  }
+  .combo-item { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 9px 10px; font-size: 14px; color: #202633; }
+  .combo-item:active, .combo-item:hover { background: #edf3fb; }
   .inline-add {
     margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line);
     display: grid; grid-template-columns: minmax(0, 1fr) 90px auto auto; gap: 8px; align-items: end;
@@ -78,14 +92,17 @@
 
 <main>
   <section id="tab-capture" class="active">
-    <div class="field">
+    <div id="edit-banner" class="hint" style="display:none;color:var(--amber)"></div>
+    <div class="field" id="report-field">
       <label>Report</label>
       <div class="row">
         <select id="f-report-type">
           <option value="">Choose a type</option>
         </select>
-        <input id="f-report-name" type="text" placeholder="Add name" list="report-names-list" autocomplete="off">
-        <datalist id="report-names-list"></datalist>
+        <div class="combo" style="flex:1">
+          <input id="f-report-name" type="text" placeholder="Add name" autocomplete="off">
+          <div class="combo-list hidden" id="report-name-list"></div>
+        </div>
       </div>
     </div>
     <div class="field">
@@ -98,14 +115,14 @@
     </div>
     <div class="field">
       <label>Attach receipt</label>
-      <div style="display:flex;gap:10px;align-items:center">
+      <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
         <label class="attach-tile" id="attach-tile" aria-label="Attach receipt">
           <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M18 9v6.5a4.5 4.5 0 0 1-9 0V6.5a3 3 0 0 1 6 0V14a1.5 1.5 0 0 1-3 0V8"/>
           </svg>
-          <input id="f-photo" type="file" accept="image/*,.pdf,application/pdf">
+          <input id="f-photo" type="file" accept="image/*,.pdf,application/pdf" multiple>
         </label>
-        <img id="f-photo-thumb" class="attach-thumb" style="display:none">
+        <div class="attach-strip" id="attach-strip"></div>
       </div>
     </div>
     <div class="field">
@@ -155,12 +172,12 @@
   </section>
 
   <section id="tab-reports">
-    <p class="hint">Reports this phone has captured into. Not the full list from your PC -- that sync doesn't exist yet.</p>
+    <p class="hint">Reports this phone has captured into. Not the full list from your PC -- that sync doesn't exist yet (see Settings for why).</p>
     <div id="reports-list"></div>
   </section>
 
   <section id="tab-queue">
-    <p class="hint">Everything saved on this phone, synced or not. Nothing is lost if the phone loses signal.</p>
+    <p class="hint">Everything saved on this phone, synced or not. Tap one to view or edit it. Nothing is lost if the phone loses signal.</p>
     <div id="queue-list"></div>
   </section>
 
@@ -178,7 +195,8 @@
       <input id="f-sync-url" type="text" placeholder="https://script.google.com/macros/s/.../exec">
     </div>
     <button type="button" class="btn ghost" id="save-settings" style="width:100%;height:44px">Save</button>
-    <p class="hint">Paste the deployment URL from the Apps Script setup here once, on this phone, one time.</p>
+    <p class="hint">Paste the deployment URL from the Apps Script setup here once, on this phone, one time. If you update apps-script.gs, redeploy from Manage deployments so this same URL keeps working.</p>
+    <p class="hint">Not yet built: cards added here do not appear in the PC's own Card list, and PC reports do not appear here. Both need the PC app itself to read this Sheet, which does not happen yet.</p>
   </section>
 </main>
 
@@ -198,7 +216,8 @@ const PROFILE_KEY = 'eh_mobile_profile';
 const REPORTS_CACHE_KEY = 'eh_mobile_reports_cache';
 const DEFAULT_CARDS = ['Pro card', 'Perso card', 'Cash'];
 const PROFILE_TYPES = { Yaron: ['LTI', 'TP', 'INSEAD-YARON'], Ella: ['INSEAD-ELLA'] };
-let photoData = null;
+let photos = [];
+let editingLocalId = null;
 
 function load() { try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch (e) { return []; } }
 function save(list) { localStorage.setItem(STORE_KEY, JSON.stringify(list)); }
@@ -278,9 +297,11 @@ function renderPaidChips() {
   document.querySelectorAll('[data-paid]').forEach((btn) => {
     btn.addEventListener('click', () => selectPaidChip(btn.dataset.paid));
   });
-  document.getElementById('paid-add').addEventListener('click', () => {
-    document.getElementById('card-form').classList.remove('hidden');
-  });
+  document.getElementById('paid-add').addEventListener('click', toggleCardForm);
+}
+
+function toggleCardForm() {
+  document.getElementById('card-form').classList.toggle('hidden');
 }
 
 function selectPaidChip(name) {
@@ -322,36 +343,88 @@ document.querySelectorAll('nav button').forEach((btn) => {
   });
 });
 
-document.querySelectorAll('[data-offset]').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    const d = new Date();
-    d.setDate(d.getDate() + Number(btn.dataset.offset));
-    document.getElementById('f-date').value = d.toISOString().slice(0, 10);
-  });
-});
-
-document.getElementById('f-photo').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  try {
-    const dataUrl = await compressImage(file);
-    photoData = { base64: dataUrl, name: file.name };
-    const thumb = document.getElementById('f-photo-thumb');
-    if (file.type.startsWith('image/')) { thumb.src = dataUrl; thumb.style.display = 'block'; }
-  } catch (err) {
-    showToast("Couldn't read that photo. Try again.");
-  }
-});
-
-document.getElementById('f-report-type').addEventListener('change', updateReportNameOptions);
-
-function updateReportNameOptions() {
-  const type = document.getElementById('f-report-type').value;
-  const cached = getCachedReports().filter((r) => r.type === type);
-  document.getElementById('report-names-list').innerHTML = cached.map((r) => `<option value="${r.name}">`).join('');
+function selectDateOffset(offset) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  document.getElementById('f-date').value = d.toISOString().slice(0, 10);
+  document.querySelectorAll('[data-offset]').forEach((b) => b.classList.toggle('on', Number(b.dataset.offset) === offset));
 }
 
+document.querySelectorAll('[data-offset]').forEach((btn) => {
+  btn.addEventListener('click', () => selectDateOffset(Number(btn.dataset.offset)));
+});
+
+// Typing the date by hand means neither preset is the actual selection
+// any more -- leaving one lit would misrepresent what is really chosen.
+document.getElementById('f-date').addEventListener('input', () => {
+  document.querySelectorAll('[data-offset]').forEach((b) => b.classList.remove('on'));
+});
+
+function renderAttachStrip() {
+  const host = document.getElementById('attach-strip');
+  host.innerHTML = photos.map((p, i) => p.base64.startsWith('data:image')
+    ? `<div class="attach-thumb-wrap"><img class="attach-thumb" src="${p.base64}"><button type="button" class="attach-remove" data-remove="${i}">&times;</button></div>`
+    : `<div class="attach-thumb-wrap"><div class="attach-thumb" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--muted)">FILE</div><button type="button" class="attach-remove" data-remove="${i}">&times;</button></div>`
+  ).join('');
+  host.querySelectorAll('[data-remove]').forEach((btn) => {
+    btn.addEventListener('click', () => { photos.splice(Number(btn.dataset.remove), 1); renderAttachStrip(); });
+  });
+}
+
+document.getElementById('f-photo').addEventListener('change', async (e) => {
+  const files = Array.from(e.target.files || []);
+  for (const file of files) {
+    try {
+      const dataUrl = await compressImage(file);
+      photos.push({ base64: dataUrl, name: file.name });
+    } catch (err) {
+      showToast("Couldn't read " + file.name + ". Skipped it.");
+    }
+  }
+  renderAttachStrip();
+  e.target.value = '';
+});
+
+// ---- Report name: a real filtered picker, not a native datalist (mobile
+// browsers do not reliably show datalist suggestions at all) -------------
+function reportNameMatches() {
+  const type = document.getElementById('f-report-type').value;
+  const typed = document.getElementById('f-report-name').value.trim().toLowerCase();
+  return getCachedReports()
+    .filter((r) => r.type === type)
+    .filter((r) => !typed || (r.name || '').toLowerCase().includes(typed));
+}
+
+function renderReportNameList() {
+  const host = document.getElementById('report-name-list');
+  const type = document.getElementById('f-report-type').value;
+  if (!type) { host.classList.add('hidden'); return; }
+  const matches = reportNameMatches();
+  if (!matches.length) { host.classList.add('hidden'); return; }
+  host.innerHTML = matches.map((r) => `<button type="button" class="combo-item" data-pick="${r.name}">${r.name}</button>`).join('');
+  host.classList.remove('hidden');
+  host.querySelectorAll('[data-pick]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.getElementById('f-report-name').value = btn.dataset.pick;
+      host.classList.add('hidden');
+    });
+  });
+}
+
+document.getElementById('f-report-type').addEventListener('change', () => {
+  document.getElementById('report-field').classList.remove('bad');
+  renderReportNameList();
+});
+document.getElementById('f-report-name').addEventListener('focus', renderReportNameList);
+document.getElementById('f-report-name').addEventListener('input', renderReportNameList);
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#report-field')) document.getElementById('report-name-list').classList.add('hidden');
+});
+
 function clearForm() {
+  editingLocalId = null;
+  document.getElementById('edit-banner').style.display = 'none';
+  document.getElementById('report-field').classList.remove('bad');
   document.getElementById('f-report-type').value = '';
   document.getElementById('f-report-name').value = '';
   document.getElementById('f-category').value = '';
@@ -359,19 +432,32 @@ function clearForm() {
   document.getElementById('f-description').value = '';
   selectPaidChip(localStorage.getItem(LAST_PAID_KEY) || '');
   document.getElementById('f-photo').value = '';
-  const thumb = document.getElementById('f-photo-thumb');
-  thumb.style.display = 'none';
-  thumb.src = '';
-  photoData = null;
+  photos = [];
+  renderAttachStrip();
   document.getElementById('f-date').valueAsDate = new Date();
-  updateReportNameOptions();
+  selectDateOffset(0);
+}
+
+// Report is the whole point of this screen on the PC too -- silently
+// letting it stay blank was why captured rows showed no report type in
+// the Sheet at all. Every missing field turns red at once, matching the
+// design rules everywhere else in this app family.
+function validateCapture() {
+  const type = document.getElementById('f-report-type').value;
+  const field = document.getElementById('report-field');
+  field.classList.toggle('bad', !type);
+  if (!type) { showToast('Choose a report type before saving.'); return false; }
+  return true;
 }
 
 function saveCapture() {
+  if (!validateCapture()) return false;
   const paidBtn = document.querySelector('[data-paid].on');
   const paidWith = paidBtn ? paidBtn.dataset.paid : '';
+  const list = load();
+  const isEdit = !!editingLocalId;
   const item = {
-    localId: uid(),
+    localId: isEdit ? editingLocalId : uid(),
     reportType: document.getElementById('f-report-type').value,
     reportName: document.getElementById('f-report-name').value,
     date: document.getElementById('f-date').value,
@@ -380,16 +466,19 @@ function saveCapture() {
     currency: document.getElementById('f-currency').value,
     description: document.getElementById('f-description').value,
     paidWith: paidWith,
-    photoBase64: photoData ? photoData.base64 : '',
-    photoName: photoData ? photoData.name : '',
+    photos: photos.slice(),
     synced: false
   };
-  const list = load();
-  list.push(item);
+  if (isEdit) {
+    const idx = list.findIndex((i) => i.localId === editingLocalId);
+    if (idx >= 0) list[idx] = item; else list.push(item);
+  } else {
+    list.push(item);
+  }
   try {
     save(list);
   } catch (err) {
-    showToast("Couldn't save that expense on this phone (storage full). Nothing was lost from the form -- try removing the photo or freeing up space.");
+    showToast("Couldn't save that expense on this phone (storage full). Nothing was lost from the form -- try removing a photo or freeing up space.");
     return false;
   }
   if (paidWith) localStorage.setItem(LAST_PAID_KEY, paidWith);
@@ -402,20 +491,47 @@ function saveCapture() {
 
 document.getElementById('btn-save').addEventListener('click', () => saveCapture());
 document.getElementById('btn-quick-save').addEventListener('click', () => {
-  if (!photoData) { showToast('Attach a photo first, then Quick save.'); return; }
+  if (!photos.length) { showToast('Attach a photo first, then Quick save.'); return; }
   saveCapture();
 });
+
+function openForEdit(localId) {
+  const list = load();
+  const item = list.find((i) => i.localId === localId);
+  if (!item) return;
+  clearForm();
+  editingLocalId = localId;
+  document.getElementById('edit-banner').style.display = 'block';
+  document.getElementById('edit-banner').textContent = item.synced
+    ? 'Editing an already-synced expense. Saving will update it.'
+    : 'Editing a not-yet-synced expense.';
+  document.getElementById('f-report-type').value = item.reportType || '';
+  document.getElementById('f-report-name').value = item.reportName || '';
+  document.getElementById('f-date').value = item.date || '';
+  document.querySelectorAll('[data-offset]').forEach((b) => b.classList.remove('on'));
+  document.getElementById('f-category').value = item.category || '';
+  document.getElementById('f-amount').value = item.amount || '';
+  document.getElementById('f-currency').value = item.currency || 'EUR';
+  document.getElementById('f-description').value = item.description || '';
+  selectPaidChip(item.paidWith || '');
+  photos = (item.photos || []).slice();
+  renderAttachStrip();
+  document.querySelector('nav button[data-tab="capture"]').click();
+}
 
 function renderQueue() {
   const list = load();
   const host = document.getElementById('queue-list');
   if (!list.length) { host.innerHTML = '<p class="hint">Nothing captured yet.</p>'; return; }
   host.innerHTML = list.slice().reverse().map((item) => `
-    <div class="qrow">
+    <div class="qrow" data-open="${item.localId}" style="cursor:pointer">
       <div>${item.date || ''} &middot; ${item.category || 'No category'} &middot; ${item.amount || '0'} ${item.currency || ''}</div>
       <span class="status ${item.synced ? 'synced' : 'pending'}">${item.synced ? 'Synced' : 'Not synced'}</span>
     </div>
   `).join('');
+  host.querySelectorAll('[data-open]').forEach((row) => {
+    row.addEventListener('click', () => openForEdit(row.dataset.open));
+  });
 }
 
 function updateSyncStrip() {
@@ -466,7 +582,6 @@ async function fetchReports() {
     if (json.ok) {
       localStorage.setItem(REPORTS_CACHE_KEY, JSON.stringify(json.reports || []));
       renderReports();
-      updateReportNameOptions();
     }
   } catch (e) { /* offline or endpoint not updated yet -- reports tab just stays on last cache */ }
 }
