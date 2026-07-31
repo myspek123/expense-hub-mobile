@@ -1,4 +1,4 @@
-const CACHE = 'eh-mobile-v1';
+const CACHE = 'eh-mobile-v2';
 const SHELL = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', (event) => {
@@ -13,9 +13,19 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Network-first for the page itself: a phone with signal should always get
+// the latest deployed version, never an update silently invisible behind a
+// stale cache. Cache is only the fallback for when there is genuinely no
+// connection -- that's the actual offline case this exists for.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    fetch(event.request)
+      .then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
