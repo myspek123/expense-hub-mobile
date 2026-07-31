@@ -29,11 +29,14 @@
   .chiprow { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
   .attach-tile { display: flex; align-items: center; justify-content: center; height: 44px; border: 1.5px dashed #c7d3e3; border-radius: 9px; color: var(--navy); font-size: 13px; font-weight: 650; background: #fafbfd; margin-top: 6px; }
   .attach-tile input { display: none; }
-  .thumb { margin-top: 8px; max-width: 100%; border-radius: 8px; border: 1px solid var(--line); }
+  .attach-tile.has-photo { border-style: solid; border-color: #a8dcbe; background: var(--green-bg); color: var(--green); }
   .footer-btn { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px; background: #fff; border-top: 1px solid var(--line); display: flex; gap: 8px; }
   .btn { flex: 1; height: 46px; border-radius: 8px; font-size: 14px; font-weight: 600; border: 1px solid var(--navy); }
   .btn.primary { background: var(--navy); color: #fff; }
   .btn.ghost { background: #fff; color: var(--navy); }
+  .btn.quick { border-color: var(--amber); color: #8a5711; background: #fffaf0; }
+  #toast { position: fixed; left: 16px; right: 16px; bottom: 76px; padding: 10px 14px; border-radius: 8px; font-size: 13px; z-index: 30; display: none; }
+  #toast.show { display: block; background: #fff4f2; border: 1px solid #e9a49e; color: #b42318; }
   #queue-list { margin-top: 4px; }
   .qrow { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
   .qrow .status { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
@@ -82,11 +85,10 @@
     </div>
     <div class="field">
       <label>Attach receipt</label>
-      <label class="attach-tile">
+      <label class="attach-tile" id="attach-tile">
         <span id="attach-label">Attach receipt</span>
         <input id="f-photo" type="file" accept="image/*,.pdf,application/pdf">
       </label>
-      <img id="f-photo-preview" class="thumb" style="display:none">
     </div>
     <div class="field">
       <label>Category</label>
@@ -147,19 +149,62 @@
   </section>
 </main>
 
+<div id="toast"></div>
+
 <div class="footer-btn" id="footer-capture">
-  <button class="btn ghost" type="button" id="btn-save-another">Save + new</button>
+  <button class="btn quick" type="button" id="btn-quick-save">Quick save</button>
   <button class="btn primary" type="button" id="btn-save">Save</button>
 </div>
 
 <script>
 const STORE_KEY = 'eh_mobile_queue_v1';
 const URL_KEY = 'eh_mobile_sync_url';
+const LAST_PAID_KEY = 'eh_mobile_last_paid';
 let photoData = null;
 
 function load() { try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch (e) { return []; } }
 function save(list) { localStorage.setItem(STORE_KEY, JSON.stringify(list)); }
 function uid() { return 'm' + Date.now() + Math.random().toString(36).slice(2, 8); }
+
+function showToast(message) {
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 4000);
+}
+
+// A phone camera photo is routinely 3-8MB; base64 inflates that further,
+// and localStorage's per-origin quota (often ~5MB on mobile Chrome) was
+// silently blowing up on save with nothing shown to the user. Every photo
+// is downscaled before it ever reaches localStorage -- a receipt only
+// needs to be legible, not full camera resolution.
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+      return;
+    }
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = () => { img.src = reader.result; };
+    reader.onerror = reject;
+    img.onload = () => {
+      const maxDim = 1400;
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.72));
+    };
+    img.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 document.querySelectorAll('nav button').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -180,24 +225,25 @@ document.querySelectorAll('[data-offset]').forEach((btn) => {
   });
 });
 
-document.querySelectorAll('[data-paid]').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('[data-paid]').forEach((b) => b.classList.remove('on'));
-    btn.classList.add('on');
-  });
-});
-
-document.getElementById('f-photo').addEventListener('change', (e) => {
+document.getElementById('f-photo').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    photoData = { base64: reader.result, name: file.name };
+  try {
+    const dataUrl = await compressImage(file);
+    photoData = { base64: dataUrl, name: file.name };
     document.getElementById('attach-label').textContent = '1 attached';
-    const img = document.getElementById('f-photo-preview');
-    if (file.type.startsWith('image/')) { img.src = reader.result; img.style.display = 'block'; }
-  };
-  reader.readAsDataURL(file);
+    document.getElementById('attach-tile').classList.add('has-photo');
+  } catch (err) {
+    showToast("Couldn't read that photo. Try again.");
+  }
+});
+
+function selectPaidChip(name) {
+  document.querySelectorAll('[data-paid]').forEach((b) => b.classList.toggle('on', b.dataset.paid === name));
+}
+
+document.querySelectorAll('[data-paid]').forEach((btn) => {
+  btn.addEventListener('click', () => selectPaidChip(btn.dataset.paid));
 });
 
 function clearForm() {
@@ -206,16 +252,17 @@ function clearForm() {
   document.getElementById('f-category').value = '';
   document.getElementById('f-amount').value = '';
   document.getElementById('f-description').value = '';
-  document.querySelectorAll('[data-paid]').forEach((b) => b.classList.remove('on'));
+  selectPaidChip(localStorage.getItem(LAST_PAID_KEY) || '');
   document.getElementById('f-photo').value = '';
-  document.getElementById('f-photo-preview').style.display = 'none';
+  document.getElementById('attach-tile').classList.remove('has-photo');
   document.getElementById('attach-label').textContent = 'Attach receipt';
   photoData = null;
   document.getElementById('f-date').valueAsDate = new Date();
 }
 
-function saveCapture(andClear) {
+function saveCapture() {
   const paidBtn = document.querySelector('[data-paid].on');
+  const paidWith = paidBtn ? paidBtn.dataset.paid : '';
   const item = {
     localId: uid(),
     reportType: document.getElementById('f-report-type').value,
@@ -225,24 +272,32 @@ function saveCapture(andClear) {
     amount: document.getElementById('f-amount').value,
     currency: document.getElementById('f-currency').value,
     description: document.getElementById('f-description').value,
-    paidWith: paidBtn ? paidBtn.dataset.paid : '',
+    paidWith: paidWith,
     photoBase64: photoData ? photoData.base64 : '',
     photoName: photoData ? photoData.name : '',
     synced: false
   };
   const list = load();
   list.push(item);
-  save(list);
+  try {
+    save(list);
+  } catch (err) {
+    showToast("Couldn't save that expense on this phone (storage full). Nothing was lost from the form -- try removing the photo or freeing up space.");
+    return false;
+  }
+  if (paidWith) localStorage.setItem(LAST_PAID_KEY, paidWith);
   clearForm();
   updateSyncStrip();
   attemptSync();
-  if (!andClear) {
-    document.querySelector('nav button[data-tab="queue"]').click();
-  }
+  document.querySelector('nav button[data-tab="queue"]').click();
+  return true;
 }
 
-document.getElementById('btn-save').addEventListener('click', () => saveCapture(false));
-document.getElementById('btn-save-another').addEventListener('click', () => saveCapture(true));
+document.getElementById('btn-save').addEventListener('click', () => saveCapture());
+document.getElementById('btn-quick-save').addEventListener('click', () => {
+  if (!photoData) { showToast('Attach a photo first, then Quick save.'); return; }
+  saveCapture();
+});
 
 function renderQueue() {
   const list = load();
