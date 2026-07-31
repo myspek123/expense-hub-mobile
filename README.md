@@ -27,9 +27,17 @@ Every expense captured on the phone lands as a row in the "MobileCaptures"
 tab of that Sheet, with any photo saved into a "Expense Hub Mobile Receipts"
 Drive folder and linked from the row.
 
-## Not yet built
+## PC pull-back -- built 2026-08-01
 
-The PC's Expense Hub app does not pull from this Sheet yet -- captures land
-in the Sheet and Drive but do not appear inside Expense Hub's own Reports
-until that pull side is built (same shape as Invoice Hub's existing
-`online_sync.py`).
+`apps-script.gs` (v1.2+) exposes `?action=export`, which the real Expense
+Hub app's `expense_hub/mobile_pull.py` (in the `expense-hub` repo) reads to
+pull captures in as real Unfiled expenses, run by hand
+(`python -m expense_hub.mobile_pull`), never on a schedule. Full detail and
+the design reasoning live in that module's docstring and in
+`wiki/open_loops/expense-hub.md`.
+
+**Whenever you paste an updated `apps-script.gs` into the Apps Script
+editor, bump the `VERSION` constant at the top of the file and redeploy via
+Manage deployments -> New version.** Opening the Web App URL directly in a
+browser shows `"version":"..."` in the JSON response -- that is how you
+confirm a redeploy actually took, without guessing.

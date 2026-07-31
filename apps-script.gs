@@ -1,13 +1,21 @@
 // Expense Hub Mobile -- Apps Script Web App
+// VERSION 1.2
 // Paste this whole file into Extensions > Apps Script on the Google Sheet
 // created for mobile capture. Deploy > Manage deployments > edit (pencil)
 // > Version: New version > Deploy, so the URL you already pasted into the
 // phone's Settings keeps working. Only use "New deployment" the first time.
 //
+// After redeploying, open the Web App URL directly in a browser (paste the
+// same URL from the phone's Settings field into any browser address bar).
+// The JSON response includes "version":"1.2" -- if it still says an older
+// number, the redeploy did not actually take and that is the bug, not the
+// code below.
+//
 // Sheet columns (row 1, exact order):
 // Timestamp | LocalId | ReportType | ReportName | Date | Category |
 // Amount | Currency | Description | PaidWith | PhotoUrls
 
+var VERSION = '1.2';
 var SHEET_NAME = 'MobileCaptures';
 var DRIVE_FOLDER_NAME = 'Expense Hub Mobile Receipts';
 
@@ -56,9 +64,67 @@ function doPost(e) {
 
 function doGet(e) {
   if (e.parameter && e.parameter.action === 'reports') {
-    return respond({ ok: true, reports: listReports() });
+    return respond({ ok: true, version: VERSION, reports: listReports() });
   }
-  return respond({ ok: true, message: 'Expense Hub Mobile sync endpoint is live.' });
+  // Raw, ungrouped rows for the real PC Expense Hub app's pull-back job
+  // (expense_hub/mobile_pull.py). Each photo is re-read from Drive and
+  // returned as base64 so the PC never needs its own Google API credentials
+  // -- same plain-HTTPS shape the phone already uses to post here.
+  if (e.parameter && e.parameter.action === 'export') {
+    return respond({ ok: true, version: VERSION, captures: exportCaptures() });
+  }
+  return respond({ ok: true, version: VERSION, message: 'Expense Hub Mobile sync endpoint is live.' });
+}
+
+function exportCaptures() {
+  var sheet = getOrCreateSheet();
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var values = sheet.getRange(2, 1, lastRow - 1, 11).getValues();
+  var out = [];
+  values.forEach(function(row) {
+    var localId = row[1];
+    if (!localId) return;
+    out.push({
+      timestamp: row[0] instanceof Date ? row[0].toISOString() : String(row[0]),
+      localId: localId,
+      reportType: row[2],
+      reportName: row[3],
+      date: row[4],
+      category: row[5],
+      amount: row[6],
+      currency: row[7],
+      description: row[8],
+      paidWith: row[9],
+      photos: photoUrlsToBase64(row[10])
+    });
+  });
+  return out;
+}
+
+// Re-fetches each attached receipt from Drive and returns it as base64.
+// A photo whose Drive file was moved or removed is skipped, not fatal --
+// the rest of that capture's fields still export.
+function photoUrlsToBase64(urlsField) {
+  if (!urlsField) return [];
+  var urls = String(urlsField).split(',').map(function(u) { return u.trim(); }).filter(Boolean);
+  var out = [];
+  urls.forEach(function(url) {
+    var m = url.match(/\/d\/([^/]+)/);
+    if (!m) return;
+    try {
+      var file = DriveApp.getFileById(m[1]);
+      var blob = file.getBlob();
+      out.push({
+        name: file.getName(),
+        mimeType: blob.getContentType(),
+        base64: Utilities.base64Encode(blob.getBytes())
+      });
+    } catch (err) {
+      // file missing or no longer accessible -- skip this one photo only
+    }
+  });
+  return out;
 }
 
 // Only knows about reports this phone has itself typed at capture time --
