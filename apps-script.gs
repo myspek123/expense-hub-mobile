@@ -53,7 +53,32 @@ function doPost(e) {
 }
 
 function doGet(e) {
+  if (e.parameter && e.parameter.action === 'reports') {
+    return respond({ ok: true, reports: listReports() });
+  }
   return respond({ ok: true, message: 'Expense Hub Mobile sync endpoint is live.' });
+}
+
+// Only knows about reports this phone has itself typed at capture time --
+// there is no connection here to the PC's real Expense Hub reports, that
+// is a separate, not-yet-built piece. This groups what already exists in
+// this same sheet by ReportType + ReportName so a repeated name can be
+// picked instead of retyped, and so the Reports tab has something to show.
+function listReports() {
+  var sheet = getOrCreateSheet();
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var values = sheet.getRange(2, 3, lastRow - 1, 6).getValues(); // ReportType..Currency
+  var byKey = {};
+  values.forEach(function(row) {
+    var type = row[0], name = row[1], amount = Number(row[4]) || 0, currency = row[5] || '';
+    if (!type) return;
+    var key = type + '|' + name;
+    if (!byKey[key]) byKey[key] = { type: type, name: name, count: 0, total: 0, currency: currency };
+    byKey[key].count += 1;
+    byKey[key].total += amount;
+  });
+  return Object.keys(byKey).map(function(k) { return byKey[k]; });
 }
 
 function getOrCreateSheet() {
