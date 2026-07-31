@@ -29,7 +29,7 @@
   .chiprow { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
   .attach-tile { display: flex; align-items: center; justify-content: center; height: 44px; border: 1.5px dashed #c7d3e3; border-radius: 9px; color: var(--navy); font-size: 13px; font-weight: 650; background: #fafbfd; margin-top: 6px; }
   .attach-tile input { display: none; }
-  .attach-tile.has-photo { border-style: solid; border-color: #a8dcbe; background: var(--green-bg); color: var(--green); }
+  .attach-thumb { height: 44px; width: 44px; object-fit: cover; border-radius: 9px; border: 1px solid var(--line); margin-top: 6px; flex-shrink: 0; }
   .footer-btn { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px; background: #fff; border-top: 1px solid var(--line); display: flex; gap: 8px; }
   .btn { flex: 1; height: 46px; border-radius: 8px; font-size: 14px; font-weight: 600; border: 1px solid var(--navy); }
   .btn.primary { background: var(--navy); color: #fff; }
@@ -85,10 +85,13 @@
     </div>
     <div class="field">
       <label>Attach receipt</label>
-      <label class="attach-tile" id="attach-tile">
-        <span id="attach-label">Attach receipt</span>
-        <input id="f-photo" type="file" accept="image/*,.pdf,application/pdf">
-      </label>
+      <div style="display:flex;gap:10px;align-items:center">
+        <label class="attach-tile" id="attach-tile" style="flex:1">
+          <span id="attach-label">Attach receipt</span>
+          <input id="f-photo" type="file" accept="image/*,.pdf,application/pdf">
+        </label>
+        <img id="f-photo-thumb" class="attach-thumb" style="display:none">
+      </div>
     </div>
     <div class="field">
       <label>Category</label>
@@ -231,8 +234,9 @@ document.getElementById('f-photo').addEventListener('change', async (e) => {
   try {
     const dataUrl = await compressImage(file);
     photoData = { base64: dataUrl, name: file.name };
-    document.getElementById('attach-label').textContent = '1 attached';
-    document.getElementById('attach-tile').classList.add('has-photo');
+    document.getElementById('attach-label').textContent = 'Change receipt';
+    const thumb = document.getElementById('f-photo-thumb');
+    if (file.type.startsWith('image/')) { thumb.src = dataUrl; thumb.style.display = 'block'; }
   } catch (err) {
     showToast("Couldn't read that photo. Try again.");
   }
@@ -254,7 +258,9 @@ function clearForm() {
   document.getElementById('f-description').value = '';
   selectPaidChip(localStorage.getItem(LAST_PAID_KEY) || '');
   document.getElementById('f-photo').value = '';
-  document.getElementById('attach-tile').classList.remove('has-photo');
+  const thumb = document.getElementById('f-photo-thumb');
+  thumb.style.display = 'none';
+  thumb.src = '';
   document.getElementById('attach-label').textContent = 'Attach receipt';
   photoData = null;
   document.getElementById('f-date').valueAsDate = new Date();
