@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Expense Hub Mobile</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1F3864">
+<style>
+  :root { --navy: #1F3864; --line: #d8e0ea; --muted: #687386; --amber: #9a6700; --amber-bg: #fff0cf; --green: #187747; --green-bg: #e5f6ec; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f6fa; color: #182235; }
+  header { background: var(--navy); color: #fff; padding: 14px 16px; }
+  header h1 { margin: 0; font-size: 17px; font-weight: 600; }
+  #sync-strip { padding: 8px 16px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
+  #sync-strip.pending { background: var(--amber-bg); color: var(--amber); }
+  #sync-strip.ok { background: var(--green-bg); color: var(--green); }
+  #sync-strip button { border: 0; background: none; color: inherit; text-decoration: underline; font-size: 12px; font-weight: 600; }
+  main { padding: 12px 16px 90px; max-width: 480px; margin: 0 auto; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
+  input, select, textarea { width: 100%; height: 40px; padding: 8px 10px; font-size: 14px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: #182235; }
+  textarea { height: 70px; resize: vertical; }
+  .row { display: flex; gap: 12px; }
+  .row .field { flex: 1; min-width: 0; }
+  .datetools { display: flex; gap: 7px; margin-top: 7px; }
+  .chip { padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: #fff; font-size: 13px; }
+  .chip.on { background: var(--navy); border-color: var(--navy); color: #fff; }
+  .chiprow { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
+  .attach-tile { display: flex; align-items: center; justify-content: center; height: 44px; border: 1.5px dashed #c7d3e3; border-radius: 9px; color: var(--navy); font-size: 13px; font-weight: 650; background: #fafbfd; margin-top: 6px; }
+  .attach-tile input { display: none; }
+  .thumb { margin-top: 8px; max-width: 100%; border-radius: 8px; border: 1px solid var(--line); }
+  .footer-btn { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px; background: #fff; border-top: 1px solid var(--line); display: flex; gap: 8px; }
+  .btn { flex: 1; height: 46px; border-radius: 8px; font-size: 14px; font-weight: 600; border: 1px solid var(--navy); }
+  .btn.primary { background: var(--navy); color: #fff; }
+  .btn.ghost { background: #fff; color: var(--navy); }
+  #queue-list { margin-top: 4px; }
+  .qrow { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .qrow .status { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+  .qrow .status.pending { background: var(--amber-bg); color: var(--amber); }
+  .qrow .status.synced { background: var(--green-bg); color: var(--green); }
+  nav { display: flex; background: #fff; border-bottom: 1px solid var(--line); }
+  nav button { flex: 1; border: 0; background: none; padding: 12px; font-size: 13px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; }
+  nav button.active { color: var(--navy); border-bottom-color: var(--navy); }
+  section { display: none; }
+  section.active { display: block; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<header><h1>Expense Hub</h1></header>
+<div id="sync-strip"></div>
+<nav>
+  <button data-tab="capture" class="active">Add expense</button>
+  <button data-tab="queue">Queue</button>
+  <button data-tab="settings">Settings</button>
+</nav>
+
+<main>
+  <section id="tab-capture" class="active">
+    <div class="field">
+      <label>Report</label>
+      <div class="row">
+        <select id="f-report-type">
+          <option value="">Choose a type</option>
+          <option>LTI</option>
+          <option>TP</option>
+          <option>INSEAD-YARON</option>
+          <option>INSEAD-ELLA</option>
+        </select>
+        <input id="f-report-name" type="text" placeholder="Add name">
+      </div>
+    </div>
+    <div class="field">
+      <label>Expense date</label>
+      <input id="f-date" type="date">
+      <div class="datetools">
+        <button type="button" class="chip" data-offset="0">Today</button>
+        <button type="button" class="chip" data-offset="-1">Yesterday</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Attach receipt</label>
+      <label class="attach-tile">
+        <span id="attach-label">Attach receipt</span>
+        <input id="f-photo" type="file" accept="image/*,.pdf,application/pdf">
+      </label>
+      <img id="f-photo-preview" class="thumb" style="display:none">
+    </div>
+    <div class="field">
+      <label>Category</label>
+      <select id="f-category">
+        <option value="">Choose a category</option>
+        <option>Automobile Expense</option>
+        <option>Fuel/Mileage Expenses</option>
+        <option>IT and Internet Expenses</option>
+        <option>Lodging</option>
+        <option>Meals and Entertainment</option>
+        <option>Office Supplies</option>
+        <option>Parking</option>
+        <option>Telephone Expense</option>
+        <option>Travel Expense</option>
+      </select>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Amount</label>
+        <input id="f-amount" type="text" inputmode="decimal" placeholder="0.00">
+      </div>
+      <div class="field" style="flex:0 0 100px">
+        <label>Currency</label>
+        <select id="f-currency">
+          <option>EUR</option>
+          <option>USD</option>
+          <option>GBP</option>
+          <option>ILS</option>
+        </select>
+      </div>
+    </div>
+    <div class="field">
+      <label>Description</label>
+      <textarea id="f-description" placeholder="What this was for"></textarea>
+    </div>
+    <div class="field">
+      <label>Paid with</label>
+      <div class="chiprow" id="paid-chips">
+        <button type="button" class="chip" data-paid="Pro card">Pro card</button>
+        <button type="button" class="chip" data-paid="Perso card">Perso card</button>
+        <button type="button" class="chip" data-paid="Cash">Cash</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-queue">
+    <p class="hint">Everything saved on this phone, synced or not. Nothing is lost if the phone loses signal.</p>
+    <div id="queue-list"></div>
+  </section>
+
+  <section id="tab-settings">
+    <div class="field">
+      <label>Sync URL (from Apps Script deployment)</label>
+      <input id="f-sync-url" type="text" placeholder="https://script.google.com/macros/s/.../exec">
+    </div>
+    <button type="button" class="btn ghost" id="save-settings" style="width:100%;height:44px">Save</button>
+    <p class="hint">Paste the deployment URL from the Apps Script setup here once, on this phone, one time.</p>
+  </section>
+</main>
+
+<div class="footer-btn" id="footer-capture">
+  <button class="btn ghost" type="button" id="btn-save-another">Save + new</button>
+  <button class="btn primary" type="button" id="btn-save">Save</button>
+</div>
+
+<script>
+const STORE_KEY = 'eh_mobile_queue_v1';
+const URL_KEY = 'eh_mobile_sync_url';
+let photoData = null;
+
+function load() { try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch (e) { return []; } }
+function save(list) { localStorage.setItem(STORE_KEY, JSON.stringify(list)); }
+function uid() { return 'm' + Date.now() + Math.random().toString(36).slice(2, 8); }
+
+document.querySelectorAll('nav button').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('nav button').forEach((b) => b.classList.remove('active'));
+    document.querySelectorAll('main section').forEach((s) => s.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    document.getElementById('footer-capture').style.display = btn.dataset.tab === 'capture' ? 'flex' : 'none';
+    if (btn.dataset.tab === 'queue') renderQueue();
+  });
+});
+
+document.querySelectorAll('[data-offset]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const d = new Date();
+    d.setDate(d.getDate() + Number(btn.dataset.offset));
+    document.getElementById('f-date').value = d.toISOString().slice(0, 10);
+  });
+});
+
+document.querySelectorAll('[data-paid]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-paid]').forEach((b) => b.classList.remove('on'));
+    btn.classList.add('on');
+  });
+});
+
+document.getElementById('f-photo').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    photoData = { base64: reader.result, name: file.name };
+    document.getElementById('attach-label').textContent = '1 attached';
+    const img = document.getElementById('f-photo-preview');
+    if (file.type.startsWith('image/')) { img.src = reader.result; img.style.display = 'block'; }
+  };
+  reader.readAsDataURL(file);
+});
+
+function clearForm() {
+  document.getElementById('f-report-type').value = '';
+  document.getElementById('f-report-name').value = '';
+  document.getElementById('f-category').value = '';
+  document.getElementById('f-amount').value = '';
+  document.getElementById('f-description').value = '';
+  document.querySelectorAll('[data-paid]').forEach((b) => b.classList.remove('on'));
+  document.getElementById('f-photo').value = '';
+  document.getElementById('f-photo-preview').style.display = 'none';
+  document.getElementById('attach-label').textContent = 'Attach receipt';
+  photoData = null;
+  document.getElementById('f-date').valueAsDate = new Date();
+}
+
+function saveCapture(andClear) {
+  const paidBtn = document.querySelector('[data-paid].on');
+  const item = {
+    localId: uid(),
+    reportType: document.getElementById('f-report-type').value,
+    reportName: document.getElementById('f-report-name').value,
+    date: document.getElementById('f-date').value,
+    category: document.getElementById('f-category').value,
+    amount: document.getElementById('f-amount').value,
+    currency: document.getElementById('f-currency').value,
+    description: document.getElementById('f-description').value,
+    paidWith: paidBtn ? paidBtn.dataset.paid : '',
+    photoBase64: photoData ? photoData.base64 : '',
+    photoName: photoData ? photoData.name : '',
+    synced: false
+  };
+  const list = load();
+  list.push(item);
+  save(list);
+  clearForm();
+  updateSyncStrip();
+  attemptSync();
+  if (!andClear) {
+    document.querySelector('nav button[data-tab="queue"]').click();
+  }
+}
+
+document.getElementById('btn-save').addEventListener('click', () => saveCapture(false));
+document.getElementById('btn-save-another').addEventListener('click', () => saveCapture(true));
+
+function renderQueue() {
+  const list = load();
+  const host = document.getElementById('queue-list');
+  if (!list.length) { host.innerHTML = '<p class="hint">Nothing captured yet.</p>'; return; }
+  host.innerHTML = list.slice().reverse().map((item) => `
+    <div class="qrow">
+      <div>${item.date || ''} &middot; ${item.category || 'No category'} &middot; ${item.amount || '0'} ${item.currency || ''}</div>
+      <span class="status ${item.synced ? 'synced' : 'pending'}">${item.synced ? 'Synced' : 'Not synced'}</span>
+    </div>
+  `).join('');
+}
+
+function updateSyncStrip() {
+  const list = load();
+  const pending = list.filter((i) => !i.synced).length;
+  const strip = document.getElementById('sync-strip');
+  if (!pending) {
+    strip.className = 'ok';
+    strip.innerHTML = 'All synced';
+  } else {
+    strip.className = 'pending';
+    strip.innerHTML = pending + ' not synced <button id="retry-btn" type="button">Sync now</button>';
+    document.getElementById('retry-btn').addEventListener('click', attemptSync);
+  }
+}
+
+async function attemptSync() {
+  const url = localStorage.getItem(URL_KEY);
+  if (!url || !navigator.onLine) { updateSyncStrip(); return; }
+  const list = load();
+  let changed = false;
+  for (const item of list) {
+    if (item.synced) continue;
+    try {
+      const res = await fetch(url, { method: 'POST', body: JSON.stringify(item) });
+      const json = await res.json();
+      if (json.ok) { item.synced = true; changed = true; }
+    } catch (e) { break; }
+  }
+  if (changed) { save(list); renderQueue(); }
+  updateSyncStrip();
+}
+
+document.getElementById('save-settings').addEventListener('click', () => {
+  localStorage.setItem(URL_KEY, document.getElementById('f-sync-url').value.trim());
+  attemptSync();
+  document.querySelector('nav button[data-tab="capture"]').click();
+});
+
+window.addEventListener('online', attemptSync);
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+document.getElementById('f-sync-url').value = localStorage.getItem(URL_KEY) || '';
+clearForm();
+updateSyncStrip();
+attemptSync();
+</script>
+</body>
+</html>

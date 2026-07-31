@@ -1,0 +1,9 @@
+{
+  "name": "Expense Hub Mobile",
+  "short_name": "Expense Hub",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f5f6fa",
+  "theme_color": "#1F3864",
+  "icons": []
+}
