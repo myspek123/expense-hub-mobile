@@ -1,5 +1,5 @@
 // Expense Hub Mobile -- Apps Script Web App
-// VERSION 1.3
+// VERSION 1.4
 // Paste this whole file into Extensions > Apps Script on the Google Sheet
 // created for mobile capture. Deploy > Manage deployments > edit (pencil)
 // > Version: New version > Deploy, so the URL you already pasted into the
@@ -7,7 +7,7 @@
 //
 // After redeploying, open the Web App URL directly in a browser (paste the
 // same URL from the phone's Settings field into any browser address bar).
-// The JSON response includes "version":"1.3" -- if it still says an older
+// The JSON response includes "version":"1.4" -- if it still says an older
 // number, the redeploy did not actually take and that is the bug, not the
 // code below.
 //
@@ -34,7 +34,7 @@
 // rewrite on every push (same pattern eh_mh_bridge.py uses for
 // FromEH/EHLists). Never edited here by hand.
 
-var VERSION = '1.3';
+var VERSION = '1.4';
 var SHEET_NAME = 'MobileCaptures';
 var PC_REPORTS_SHEET_NAME = 'PCReports';
 var DRIVE_FOLDER_NAME = 'Expense Hub Mobile Receipts';
@@ -45,7 +45,7 @@ function syncCode_() {
 
 function codeOk_(param) {
   var required = syncCode_();
-  if (!required) return true; // not configured yet -- open, same as pre-1.3
+  if (!required) return true; // not configured yet -- open, same as pre-1.4
   return param === required;
 }
 
