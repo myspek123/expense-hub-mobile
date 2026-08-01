@@ -453,6 +453,11 @@ function renderReportNameList() {
 
 document.getElementById('f-report-type').addEventListener('change', () => {
   document.getElementById('report-field').classList.remove('bad');
+  // A report belongs to exactly one flow. Keeping the old report name after
+  // changing type (for example LTI -> TP) leaves an impossible pairing and
+  // also filters every valid TP suggestion out of the picker. Clear both the
+  // display value and its stable reference, then show the new type's reports.
+  document.getElementById('f-report-name').value = '';
   selectedReportRef = '';
   renderReportNameList();
 });
