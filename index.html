@@ -303,6 +303,7 @@ document.querySelectorAll('[data-profile]').forEach((btn) => {
     document.querySelectorAll('[data-profile]').forEach((b) => b.classList.toggle('on', b.dataset.profile === btn.dataset.profile));
     populateReportTypes();
     renderReports();
+    fetchReports();
   });
 });
 
@@ -640,19 +641,27 @@ const FLOW_TO_PHONE_TYPE = Object.fromEntries(
   Object.entries(PHONE_TYPE_TO_FLOW).map(([type, flow]) => [flow, type])
 );
 
+// Whose report a flow belongs to -- ELLA is Ella's own, everything else
+// (NDF/LTI/MEDICAL/TP/INSEAD-YARON) is Yaron's. Privacy split, not a
+// capture-capability split: PROFILE_TYPES (used for the Add Expense type
+// dropdown) is a *subset* of what a profile is even allowed to see -- Yaron
+// sees NDF/MEDICAL too even though he can't capture into them from the
+// phone. (2026-08-01 correction: this screen used to filter by
+// PROFILE_TYPES directly, which silently hid NDF/MEDICAL reports that had
+// genuinely synced but could never display for anyone.)
+function visibleFlowsForProfile(profile) {
+  const flows = [...new Set(getCachedReports().map((r) => r.type))];
+  return profile === 'Ella' ? flows.filter((f) => f === 'ELLA') : flows.filter((f) => f !== 'ELLA');
+}
+
 // Reports are the PC's real ones (PCReports, pushed by mobile_push.py every
 // 30 minutes) -- type + name + status, same shape the PC's own report list
-// shows. Every flow the PC actually has a report for is shown here, not
-// only the flows this phone's own Add Expense form can capture into --
-// PROFILE_TYPES scopes what you can FILE, not what you can SEE. (2026-08-01
-// correction: this used to filter by PROFILE_TYPES too, silently hiding
-// NDF/MEDICAL reports that had genuinely synced but could never display.)
-// No per-report expense count/total here: that data lives on the PC, not
-// in this cache.
+// shows. No per-report expense count/total here: that data lives on the PC,
+// not in this cache.
 function renderReports() {
   const host = document.getElementById('reports-list');
   const all = getCachedReports();
-  const flows = [...new Set(all.map((r) => r.type))].sort();
+  const flows = visibleFlowsForProfile(getProfile()).sort();
   let html = '';
   flows.forEach((flow) => {
     const rows = all.filter((r) => r.type === flow);
