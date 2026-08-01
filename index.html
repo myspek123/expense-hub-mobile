@@ -173,7 +173,7 @@
   </section>
 
   <section id="tab-reports">
-    <p class="hint">Reports this phone has captured into. Not the full list from your PC -- that sync doesn't exist yet (see Settings for why).</p>
+    <p class="hint">Your PC's real reports, synced every 30 minutes.</p>
     <div id="reports-list"></div>
   </section>
 
@@ -195,9 +195,13 @@
       <label>Sync URL (from Apps Script deployment)</label>
       <input id="f-sync-url" type="text" placeholder="https://script.google.com/macros/s/.../exec">
     </div>
+    <div class="field">
+      <label>Sync code</label>
+      <input id="f-sync-code" type="text" placeholder="Only needed once your PC sets one up" autocomplete="off">
+    </div>
     <button type="button" class="btn ghost" id="save-settings" style="width:100%;height:44px">Save</button>
     <p class="hint">Paste the deployment URL from the Apps Script setup here once, on this phone, one time. If you update apps-script.gs, redeploy from Manage deployments so this same URL keeps working.</p>
-    <p class="hint">Not yet built: cards added here do not appear in the PC's own Card list, and PC reports do not appear here. Both need the PC app itself to read this Sheet, which does not happen yet.</p>
+    <p class="hint">The sync code is the same shared code typed into the PC's own settings. Leave blank until your PC tells you one has been set up.</p>
   </section>
 </main>
 
@@ -211,14 +215,23 @@
 <script>
 const STORE_KEY = 'eh_mobile_queue_v1';
 const URL_KEY = 'eh_mobile_sync_url';
+const CODE_KEY = 'eh_mobile_sync_code';
 const LAST_PAID_KEY = 'eh_mobile_last_paid';
 const CARDS_KEY = 'eh_mobile_cards';
 const PROFILE_KEY = 'eh_mobile_profile';
 const REPORTS_CACHE_KEY = 'eh_mobile_reports_cache';
 const DEFAULT_CARDS = ['Pro card', 'Perso card', 'Cash'];
 const PROFILE_TYPES = { Yaron: ['LTI', 'TP', 'INSEAD-YARON'], Ella: ['INSEAD-ELLA'] };
+// The PC's real reports are keyed by FLOW (its internal enum), which is not
+// spelled the same as the phone's own type dropdown for Ella's flow.
+// Mapped explicitly here, matching expense_hub/mobile_pull.py's
+// REPORT_TYPE_TO_FLOW on the PC side -- never guessed.
+const PHONE_TYPE_TO_FLOW = { 'LTI': 'LTI', 'TP': 'TP', 'INSEAD-YARON': 'INSEAD-YARON', 'INSEAD-ELLA': 'ELLA' };
 let photos = [];
 let editingLocalId = null;
+let selectedReportRef = '';
+
+function getSyncCode() { return localStorage.getItem(CODE_KEY) || ''; }
 
 function load() { try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch (e) { return []; } }
 function save(list) { localStorage.setItem(STORE_KEY, JSON.stringify(list)); }
@@ -390,9 +403,10 @@ document.getElementById('f-photo').addEventListener('change', async (e) => {
 // browsers do not reliably show datalist suggestions at all) -------------
 function reportNameMatches() {
   const type = document.getElementById('f-report-type').value;
+  const flow = PHONE_TYPE_TO_FLOW[type] || type;
   const typed = document.getElementById('f-report-name').value.trim().toLowerCase();
   return getCachedReports()
-    .filter((r) => r.type === type)
+    .filter((r) => r.type === flow)
     .filter((r) => !typed || (r.name || '').toLowerCase().includes(typed));
 }
 
@@ -402,11 +416,16 @@ function renderReportNameList() {
   if (!type) { host.classList.add('hidden'); return; }
   const matches = reportNameMatches();
   if (!matches.length) { host.classList.add('hidden'); return; }
-  host.innerHTML = matches.map((r) => `<button type="button" class="combo-item" data-pick="${r.name}">${r.name}</button>`).join('');
+  // Matched by reportRef, not display-name text -- two real reports can
+  // share a display name (e.g. both fell back to "Unnamed report"), and
+  // matching by name alone was the exact bug that once created a brand new
+  // report on the PC side instead of filing into the one actually picked.
+  host.innerHTML = matches.map((r) => `<button type="button" class="combo-item" data-pick="${r.name}" data-ref="${r.reportRef}">${r.name}</button>`).join('');
   host.classList.remove('hidden');
   host.querySelectorAll('[data-pick]').forEach((btn) => {
     btn.addEventListener('click', () => {
       document.getElementById('f-report-name').value = btn.dataset.pick;
+      selectedReportRef = btn.dataset.ref;
       host.classList.add('hidden');
     });
   });
@@ -414,16 +433,23 @@ function renderReportNameList() {
 
 document.getElementById('f-report-type').addEventListener('change', () => {
   document.getElementById('report-field').classList.remove('bad');
+  selectedReportRef = '';
   renderReportNameList();
 });
 document.getElementById('f-report-name').addEventListener('focus', renderReportNameList);
-document.getElementById('f-report-name').addEventListener('input', renderReportNameList);
+document.getElementById('f-report-name').addEventListener('input', () => {
+  // Typing invalidates whatever was picked before -- a real match is only
+  // ever set by clicking a suggestion, never inferred from typed text.
+  selectedReportRef = '';
+  renderReportNameList();
+});
 document.addEventListener('click', (e) => {
   if (!e.target.closest('#report-field')) document.getElementById('report-name-list').classList.add('hidden');
 });
 
 function clearForm() {
   editingLocalId = null;
+  selectedReportRef = '';
   document.getElementById('edit-banner').style.display = 'none';
   document.getElementById('report-field').classList.remove('bad');
   document.getElementById('f-report-type').value = '';
@@ -461,6 +487,7 @@ function saveCapture() {
     localId: isEdit ? editingLocalId : uid(),
     reportType: document.getElementById('f-report-type').value,
     reportName: document.getElementById('f-report-name').value,
+    reportRef: selectedReportRef,
     date: document.getElementById('f-date').value,
     category: document.getElementById('f-category').value,
     amount: document.getElementById('f-amount').value,
@@ -508,6 +535,7 @@ function openForEdit(localId) {
     : 'Editing a not-yet-synced expense.';
   document.getElementById('f-report-type').value = item.reportType || '';
   document.getElementById('f-report-name').value = item.reportName || '';
+  selectedReportRef = item.reportRef || '';
   document.getElementById('f-date').value = item.date || '';
   document.querySelectorAll('[data-offset]').forEach((b) => b.classList.remove('on'));
   document.getElementById('f-category').value = item.category || '';
@@ -557,7 +585,8 @@ async function attemptSync() {
   for (const item of list) {
     if (item.synced) continue;
     try {
-      const res = await fetch(url, { method: 'POST', body: JSON.stringify(item) });
+      const payload = Object.assign({}, item, { code: getSyncCode() });
+      const res = await fetch(url, { method: 'POST', body: JSON.stringify(payload) });
       const json = await res.json();
       if (json.ok) { item.synced = true; changed = true; }
     } catch (e) { break; }
@@ -578,7 +607,9 @@ async function fetchReports() {
   const url = localStorage.getItem(URL_KEY);
   if (!url || !navigator.onLine) return;
   try {
-    const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'action=reports');
+    const code = getSyncCode();
+    const codePart = code ? '&code=' + encodeURIComponent(code) : '';
+    const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'action=reports' + codePart);
     const json = await res.json();
     if (json.ok) {
       localStorage.setItem(REPORTS_CACHE_KEY, JSON.stringify(json.reports || []));
@@ -587,25 +618,30 @@ async function fetchReports() {
   } catch (e) { /* offline or endpoint not updated yet -- reports tab just stays on last cache */ }
 }
 
+// Reports are the PC's real ones (PCReports, pushed by mobile_push.py every
+// 30 minutes) -- type + name + status, same shape the PC's own report list
+// shows. No per-report expense count/total here: that data lives on the PC,
+// not in this cache.
 function renderReports() {
   const host = document.getElementById('reports-list');
   const types = PROFILE_TYPES[getProfile()] || [];
-  const all = getCachedReports().filter((r) => types.includes(r.type));
-  if (!all.length) { host.innerHTML = '<p class="hint">Nothing captured into a report yet.</p>'; return; }
+  const all = getCachedReports();
   let html = '';
   types.forEach((type) => {
-    const rows = all.filter((r) => r.type === type);
+    const flow = PHONE_TYPE_TO_FLOW[type] || type;
+    const rows = all.filter((r) => r.type === flow);
     if (!rows.length) return;
     html += `<div class="band">${type}</div>`;
     rows.forEach((r) => {
-      html += `<div class="report-row"><div>${r.name || '(unnamed)'}<div class="sub">${r.count} expense${r.count === 1 ? '' : 's'}</div></div><div>${r.total.toFixed(2)} ${r.currency || ''}</div></div>`;
+      html += `<div class="report-row"><div>${r.name || '(unnamed)'}</div><div class="sub">${r.status || ''}</div></div>`;
     });
   });
-  host.innerHTML = html || '<p class="hint">Nothing captured into a report yet.</p>';
+  host.innerHTML = html || '<p class="hint">No reports from the PC yet. Check back after the next 30-minute sync.</p>';
 }
 
 document.getElementById('save-settings').addEventListener('click', () => {
   localStorage.setItem(URL_KEY, document.getElementById('f-sync-url').value.trim());
+  localStorage.setItem(CODE_KEY, document.getElementById('f-sync-code').value.trim());
   attemptSync();
   fetchReports();
   document.querySelector('nav button[data-tab="capture"]').click();
@@ -618,6 +654,7 @@ if ('serviceWorker' in navigator) {
 }
 
 document.getElementById('f-sync-url').value = localStorage.getItem(URL_KEY) || '';
+document.getElementById('f-sync-code').value = localStorage.getItem(CODE_KEY) || '';
 document.querySelectorAll('[data-profile]').forEach((b) => b.classList.toggle('on', b.dataset.profile === getProfile()));
 populateReportTypes();
 renderPaidChips();
