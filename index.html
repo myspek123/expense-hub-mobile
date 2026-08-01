@@ -43,6 +43,14 @@
     position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%;
     border: 1px solid var(--line); background: #fff; color: var(--danger); font-size: 12px; line-height: 1; padding: 0;
   }
+  /* The report-type select has no explicit flex sizing, so its own
+     width:100% (from the generic input/select/textarea rule above) was
+     being read as its flex-basis -- it demanded the row's full width,
+     squeezing the report-name combo box next to it down to a sliver, and
+     its dropdown list (position:absolute, left:0;right:0 relative to that
+     sliver) rendered as an unreadable few-pixels-wide strip. Give the type
+     select a fixed width instead of a flex-basis fight. */
+  #f-report-type { flex: 0 0 128px; width: 128px; }
   .combo { position: relative; }
   .combo-list {
     position: absolute; z-index: 15; top: calc(100% + 2px); left: 0; right: 0; max-height: 180px; overflow-y: auto;
@@ -50,6 +58,7 @@
   }
   .combo-item { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 9px 10px; font-size: 14px; color: #202633; }
   .combo-item:active, .combo-item:hover { background: #edf3fb; }
+  .combo-item-status { color: var(--muted); font-size: 12px; }
   .inline-add {
     margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line);
     display: grid; grid-template-columns: minmax(0, 1fr) 90px auto auto; gap: 8px; align-items: end;
@@ -420,7 +429,15 @@ function renderReportNameList() {
   // share a display name (e.g. both fell back to "Unnamed report"), and
   // matching by name alone was the exact bug that once created a brand new
   // report on the PC side instead of filing into the one actually picked.
-  host.innerHTML = matches.map((r) => `<button type="button" class="combo-item" data-pick="${r.name}" data-ref="${r.reportRef}">${r.name}</button>`).join('');
+  // Every report the PC has (not just Draft) is offered here, matching the
+  // PC's own picker -- but only a Draft one can actually be filed into
+  // directly, so a picked non-Draft report is labelled, never hidden
+  // outright: picking it anyway still lands the capture safely in Unfiled
+  // (mobile_pull.py's own status check), not lost.
+  host.innerHTML = matches.map((r) => {
+    const suffix = r.status && r.status !== 'Draft' ? ` <span class="combo-item-status">(${r.status})</span>` : '';
+    return `<button type="button" class="combo-item" data-pick="${r.name}" data-ref="${r.reportRef}">${r.name}${suffix}</button>`;
+  }).join('');
   host.classList.remove('hidden');
   host.querySelectorAll('[data-pick]').forEach((btn) => {
     btn.addEventListener('click', () => {
