@@ -135,6 +135,21 @@ function doGet(e) {
   return respond({ ok: true, version: VERSION, message: 'Expense Hub Mobile sync endpoint is live.' });
 }
 
+// A plain "2026-07-31" string the phone posts gets auto-coerced by Sheets
+// into a real Date-typed cell for the Date column (Timestamp already got
+// this same treatment, which is why it already had a Date check -- Date
+// never did, and that gap is exactly why some mobile captures were
+// silently skipped on the PC side with "Expense date must use YYYY-MM-DD":
+// row[4] was a Date object, JSON-serializing to a full ISO datetime, which
+// Python's strict date parser rejects. Formatting in the SCRIPT's own
+// timezone (not .toISOString(), which is always UTC and can roll the date
+// back a day for timezones behind UTC) keeps the date exactly what was
+// typed.
+function formatDateCell_(value) {
+  if (!(value instanceof Date)) return String(value || '');
+  return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
 function exportCaptures() {
   var sheet = getOrCreateSheet();
   var lastRow = sheet.getLastRow();
@@ -149,7 +164,7 @@ function exportCaptures() {
       localId: localId,
       reportType: row[2],
       reportName: row[3],
-      date: row[4],
+      date: formatDateCell_(row[4]),
       category: row[5],
       amount: row[6],
       currency: row[7],
