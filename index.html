@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="1.5">
+<meta name="application-version" content="1.6">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -95,7 +95,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="app-version">v1.5</span></header>
+<header><h1>Expense Hub</h1><span class="app-version">v1.6</span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -210,7 +210,10 @@
     </div>
     <div class="field">
       <label>Sync code</label>
-      <input id="f-sync-code" type="text" placeholder="Only needed once your PC sets one up" autocomplete="off">
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px">
+        <input id="f-sync-code" type="password" placeholder="Only needed once your PC sets one up" autocomplete="off">
+        <button type="button" class="btn ghost" id="toggle-sync-code" aria-label="Show sync code" aria-pressed="false" style="padding:0 14px">Show</button>
+      </div>
     </div>
     <button type="button" class="btn ghost" id="save-settings" style="width:100%;height:44px">Save</button>
     <p class="hint">Paste the deployment URL from the Apps Script setup here once, on this phone, one time. If you update apps-script.gs, redeploy from Manage deployments so this same URL keeps working.</p>
@@ -257,37 +260,70 @@ function showToast(message) {
   setTimeout(() => toast.classList.remove('show'), 4000);
 }
 
-// A phone camera photo is routinely 3-8MB; base64 inflates that further,
-// and localStorage's per-origin quota (often ~5MB on mobile Chrome) was
-// silently blowing up on save with nothing shown to the user. Every photo
-// is downscaled before it ever reaches localStorage -- a receipt only
-// needs to be legible, not full camera resolution.
-function compressImage(file) {
+function blobAsDataUrl(blob) {
   return new Promise((resolve, reject) => {
-    if (!file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-      return;
-    }
-    const img = new Image();
     const reader = new FileReader();
-    reader.onload = () => { img.src = reader.result; };
+    reader.onload = () => resolve(reader.result);
     reader.onerror = reject;
-    img.onload = () => {
-      const maxDim = 1400;
-      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(img.width * scale);
-      canvas.height = Math.round(img.height * scale);
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL('image/jpeg', 0.72));
-    };
-    img.onerror = reject;
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(blob);
   });
+}
+
+function loadImageFromObjectUrl(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => resolve({ source: image, url: url });
+    image.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image decode failed.')); };
+    image.src = url;
+  });
+}
+
+function compressedCanvasBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => blob ? resolve(blob) : reject(new Error('Image compression failed.')),
+      'image/jpeg',
+      0.70
+    );
+  });
+}
+
+// Keep only one full camera decode alive at a time. The old path first made a
+// multi-megabyte base64 string, decoded another full image from it, then made
+// a canvas and a second base64 string; taking photo two could exhaust Android
+// browser memory while photo one's temporary objects were still retained.
+async function compressImage(file) {
+  if (!file.type.startsWith('image/')) return blobAsDataUrl(file);
+  let source = null;
+  let objectUrl = '';
+  let canvas = null;
+  try {
+    if ('createImageBitmap' in window) {
+      source = await createImageBitmap(file);
+    } else {
+      const loaded = await loadImageFromObjectUrl(file);
+      source = loaded.source;
+      objectUrl = loaded.url;
+    }
+    const width = source.width || source.naturalWidth;
+    const height = source.height || source.naturalHeight;
+    const maxDim = 1200;
+    const scale = Math.min(1, maxDim / Math.max(width, height));
+    canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) throw new Error('Image canvas is unavailable.');
+    ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+    const compressed = await compressedCanvasBlob(canvas);
+    return await blobAsDataUrl(compressed);
+  } finally {
+    if (source && typeof source.close === 'function') source.close();
+    if (source && source.tagName === 'IMG') source.src = '';
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    if (canvas) { canvas.width = 1; canvas.height = 1; }
+  }
 }
 
 // ---- Profile: which report types this phone offers -----------------------
@@ -521,7 +557,7 @@ function saveCapture() {
     currency: document.getElementById('f-currency').value,
     description: document.getElementById('f-description').value,
     paidWith: paidWith,
-    photos: photos.slice(),
+    photos: photos,
     synced: false
   };
   if (isEdit) {
@@ -690,6 +726,15 @@ document.getElementById('save-settings').addEventListener('click', () => {
   attemptSync();
   fetchReports();
   document.querySelector('nav button[data-tab="capture"]').click();
+});
+
+document.getElementById('toggle-sync-code').addEventListener('click', (event) => {
+  const input = document.getElementById('f-sync-code');
+  const showing = input.type === 'text';
+  input.type = showing ? 'password' : 'text';
+  event.currentTarget.textContent = showing ? 'Show' : 'Hide';
+  event.currentTarget.setAttribute('aria-label', showing ? 'Show sync code' : 'Hide sync code');
+  event.currentTarget.setAttribute('aria-pressed', showing ? 'false' : 'true');
 });
 
 window.addEventListener('online', () => { attemptSync(); fetchReports(); });
