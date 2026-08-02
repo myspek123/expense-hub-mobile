@@ -70,3 +70,21 @@ def test_report_detail_view_exists_with_filters_and_pagination():
 def test_report_rows_open_the_detail_view():
     assert "data-open-report=" in HTML
     assert "openReportDetail(row.dataset.openReport" in HTML
+
+
+# -- 2026-08-03: binding rule, wiki/protocols/app-ui-design-rules.md line 151
+# -- any date shown as text is dd/mm/yyyy, never yyyy-mm-dd. Found live: the
+# report-detail screen and the Unfiled/Queue tab both showed the raw PCExpenses
+# ISO string unformatted.
+
+def test_ddmmyyyy_formatter_exists_and_uses_slashes():
+    assert "function ddmmyyyy(dateStr)" in HTML
+    formatter = HTML[HTML.index("function ddmmyyyy(dateStr)"):]
+    assert "${parts[2]}/${parts[1]}/${parts[0]}" in formatter[:400]
+
+
+def test_report_detail_and_queue_rows_use_the_formatter_not_the_raw_date():
+    assert "${ddmmyyyy(x.date)}" in HTML
+    assert "${ddmmyyyy(item.date)}" in HTML
+    assert "${x.date || ''}" not in HTML
+    assert "${item.date || ''} &middot;" not in HTML

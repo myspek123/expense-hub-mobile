@@ -674,7 +674,7 @@ function renderQueue() {
   if (!list.length) { host.innerHTML = '<p class="hint">Nothing captured yet.</p>'; return; }
   host.innerHTML = list.slice().reverse().map((item) => `
     <div class="qrow" data-open="${item.localId}" style="cursor:pointer">
-      <div>${item.date || ''} &middot; ${item.category || 'No category'} &middot; ${item.amount || '0'} ${item.currency || ''}</div>
+      <div>${ddmmyyyy(item.date)} &middot; ${item.category || 'No category'} &middot; ${item.amount || '0'} ${item.currency || ''}</div>
       <span class="status ${item.synced ? 'synced' : 'pending'}">${item.synced ? 'Synced' : 'Not synced'}</span>
     </div>
   `).join('');
@@ -834,6 +834,15 @@ function monthBand(dateStr) {
   return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 }
 
+// Binding rule, wiki/protocols/app-ui-design-rules.md line 151: any date
+// shown as plain text is always dd/mm/yyyy, never yyyy-mm-dd. PCExpenses
+// delivers a plain "yyyy-mm-dd" string; this is the one place it gets
+// displayed as text on this screen.
+function ddmmyyyy(dateStr) {
+  const parts = String(dateStr || '').slice(0, 10).split('-');
+  return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : String(dateStr || '');
+}
+
 function renderReportDetail() {
   const all = detailLinesForReport();
   const query = document.getElementById('report-detail-search').value.trim().toLowerCase();
@@ -880,7 +889,7 @@ function renderReportDetail() {
     html += `<div class="exrow">
       <div class="body">
         <div class="nm">${warnIco}${escapeHtml(x.description || x.category || 'Expense')}</div>
-        <div class="meta">${x.date || ''} &middot; ${escapeHtml(x.category || '')}${x.paidWith ? ' &middot; ' + escapeHtml(x.paidWith) : ''}${!x.hasReceipt ? ' &middot; no receipt' : ''}</div>
+        <div class="meta">${ddmmyyyy(x.date)} &middot; ${escapeHtml(x.category || '')}${x.paidWith ? ' &middot; ' + escapeHtml(x.paidWith) : ''}${!x.hasReceipt ? ' &middot; no receipt' : ''}</div>
       </div>
       ${ndfPill}
       <div class="amt">${Number(x.amount || 0).toFixed(2)}</div>
