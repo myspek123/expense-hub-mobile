@@ -32,3 +32,41 @@ def test_mobile_release_and_cache_version_are_bumped():
     assert '>v1.6</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
     assert "eh-mobile-v5" in service_worker
+
+
+# -- 2026-08-02: Medical on both profiles, Queue renamed Unfiled, report
+# detail screen with a 90-day window, filters and pagination ----------------
+
+def test_medical_is_offered_on_both_profiles():
+    assert "Yaron: ['LTI', 'TP', 'INSEAD-YARON', 'MEDICAL']" in HTML
+    assert "Ella: ['INSEAD-ELLA', 'MEDICAL']" in HTML
+    assert "'MEDICAL': 'MEDICAL'" in HTML
+
+
+def test_queue_tab_relabeled_unfiled_without_renaming_its_internal_id():
+    assert '<button data-tab="queue">Unfiled</button>' in HTML
+    # The internal id stays "queue" -- only the visible label changed, so
+    # nothing else in the file needed touching.
+    assert 'id="tab-queue"' in HTML
+
+
+def test_synced_capture_drops_off_once_its_report_is_no_longer_cached():
+    prune = HTML[HTML.index("function pruneQueueForSentReports") :]
+    assert "if (!item.synced) return true;" in prune
+    assert "if (!item.reportRef) return true;" in prune
+    assert "cachedRefs.has(item.reportRef)" in prune
+    assert "function renderQueue() {\n  const list = pruneQueueForSentReports();" in HTML
+
+
+def test_report_detail_view_exists_with_filters_and_pagination():
+    assert 'id="report-detail-view"' in HTML
+    assert 'id="report-detail-search"' in HTML
+    assert 'id="report-detail-chips"' in HTML
+    assert 'id="report-detail-more"' in HTML
+    assert "DETAIL_PAGE_SIZE = 25" in HTML
+    assert "Only the last 90 days of this report are shown here" in HTML
+
+
+def test_report_rows_open_the_detail_view():
+    assert "data-open-report=" in HTML
+    assert "openReportDetail(row.dataset.openReport" in HTML

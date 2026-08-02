@@ -1,5 +1,5 @@
 // Expense Hub Mobile -- Apps Script Web App
-// VERSION 1.4
+// VERSION 1.6
 // Paste this whole file into Extensions > Apps Script on the Google Sheet
 // created for mobile capture. Deploy > Manage deployments > edit (pencil)
 // > Version: New version > Deploy, so the URL you already pasted into the
@@ -7,7 +7,7 @@
 //
 // After redeploying, open the Web App URL directly in a browser (paste the
 // same URL from the phone's Settings field into any browser address bar).
-// The JSON response includes "version":"1.4" -- if it still says an older
+// The JSON response includes "version":"1.6" -- if it still says an older
 // number, the redeploy did not actually take and that is the bug, not the
 // code below.
 //
@@ -33,10 +33,19 @@
 // Written only by the PC's own expense_hub/mobile_push.py, delete-then-
 // rewrite on every push (same pattern eh_mh_bridge.py uses for
 // FromEH/EHLists). Never edited here by hand.
+//
+// Sheet columns (PCExpenses, row 1, exact order) -- new 2026-08-02:
+// EXP_ID | REPORT_REF | DATE | CATEGORY | DESCRIPTION | PAID_WITH | AMOUNT |
+// CURRENCY | HAS_RECEIPT | NDF
+// Written only by expense_hub/mobile_push.py, delete-then-rewrite on every
+// push. Every Draft report's lines from the last 90 days -- an older line
+// stays on the PC only, it is simply not pushed here. Never edited here by
+// hand.
 
-var VERSION = '1.4';
+var VERSION = '1.6';
 var SHEET_NAME = 'MobileCaptures';
 var PC_REPORTS_SHEET_NAME = 'PCReports';
+var PC_EXPENSES_SHEET_NAME = 'PCExpenses';
 var DRIVE_FOLDER_NAME = 'Expense Hub Mobile Receipts';
 
 function syncCode_() {
@@ -59,6 +68,9 @@ function doPost(e) {
     }
     if (data.action === 'push_reports') {
       return doPushReports_(data);
+    }
+    if (data.action === 'push_expenses') {
+      return doPushExpenses_(data);
     }
 
     var sheet = getOrCreateSheet();
@@ -117,6 +129,28 @@ function doPushReports_(data) {
   return respond({ ok: true, received: rows.length });
 }
 
+// Same delete-then-rewrite pattern as doPushReports_, one row per expense
+// line within a Draft report's pushed 90-day window. The phone never edits
+// this sheet, only reads it for the Reports tab's report-detail screen.
+function doPushExpenses_(data) {
+  var sheet = getOrCreatePCExpensesSheet();
+  var expenses = data.expenses || [];
+  if (sheet.getLastRow() > 1) {
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, 10).clearContent();
+  }
+  var rows = expenses.map(function(x) {
+    return [
+      x.expId || '', x.reportRef || '', x.date || '', x.category || '',
+      x.description || '', x.paidWith || '', x.amount || '', x.currency || '',
+      x.hasReceipt ? 1 : 0, x.ndf ? 1 : 0
+    ];
+  });
+  if (rows.length) {
+    sheet.getRange(2, 1, rows.length, 10).setValues(rows);
+  }
+  return respond({ ok: true, received: rows.length });
+}
+
 function doGet(e) {
   var code = e.parameter && e.parameter.code;
   if (!codeOk_(code)) {
@@ -124,6 +158,9 @@ function doGet(e) {
   }
   if (e.parameter && e.parameter.action === 'reports') {
     return respond({ ok: true, version: VERSION, reports: listPCReports() });
+  }
+  if (e.parameter && e.parameter.action === 'expenses') {
+    return respond({ ok: true, version: VERSION, expenses: listPCExpenses() });
   }
   // Raw, ungrouped rows for the real PC Expense Hub app's pull-back job
   // (expense_hub/mobile_pull.py). Each photo is re-read from Drive and
@@ -216,6 +253,40 @@ function listPCReports() {
     out.push({ type: row[0], name: row[1], status: row[2], reportRef: row[3], updatedAt: row[4] });
   });
   return out;
+}
+
+// PCExpenses rows, filtered to only what has an EXP_ID -- same defensive
+// pattern as listPCReports().
+function listPCExpenses() {
+  var sheet = getOrCreatePCExpensesSheet();
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var values = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
+  var out = [];
+  values.forEach(function(row) {
+    if (!row[0]) return;
+    out.push({
+      expId: row[0], reportRef: row[1], date: formatDateCell_(row[2]),
+      category: row[3], description: row[4], paidWith: row[5],
+      amount: row[6], currency: row[7],
+      hasReceipt: row[8] === 1 || row[8] === true,
+      ndf: row[9] === 1 || row[9] === true
+    });
+  });
+  return out;
+}
+
+function getOrCreatePCExpensesSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(PC_EXPENSES_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(PC_EXPENSES_SHEET_NAME);
+    sheet.appendRow([
+      'EXP_ID', 'REPORT_REF', 'DATE', 'CATEGORY', 'DESCRIPTION', 'PAID_WITH',
+      'AMOUNT', 'CURRENCY', 'HAS_RECEIPT', 'NDF'
+    ]);
+  }
+  return sheet;
 }
 
 function getOrCreateSheet() {

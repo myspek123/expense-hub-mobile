@@ -91,6 +91,23 @@
   .status-pill { font-size: 10px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; background: #eef2fa; color: var(--muted); }
   .status-pill.status-draft { background: var(--amber-bg); color: var(--amber); }
   .status-pill.status-sent { background: var(--green-bg); color: var(--green); }
+  /* Report detail (wireframe 1b) */
+  .detail-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .detail-back { border: 0; background: none; padding: 4px; font-size: 20px; line-height: 1; color: var(--navy); }
+  .detail-title { font-weight: 700; font-size: 15px; }
+  .detail-sub { font-size: 12px; color: var(--muted); }
+  .detail-total { display: flex; justify-content: space-between; align-items: center; background: #eef2fa; border-radius: 8px; padding: 10px 12px; margin: 8px 0 10px; font-size: 13px; font-weight: 700; }
+  .searchbox { width: 100%; margin-bottom: 8px; }
+  .ex-chip .ct { display: inline-block; margin-left: 5px; background: var(--amber-bg); color: var(--amber); border-radius: 999px; padding: 0 6px; font-weight: 700; font-size: 11px; }
+  .chip.on .ex-chip .ct, .chip.on.ex-chip .ct { background: #fff; color: var(--navy); }
+  .exrow { display: flex; align-items: flex-start; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .exrow .body { flex: 1; min-width: 0; }
+  .exrow .nm { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .exrow .meta { font-size: 11px; color: var(--muted); }
+  .exrow .amt { width: 74px; flex: none; text-align: right; font-size: 13px; font-weight: 700; }
+  .warn-ico { color: var(--amber); flex: none; }
+  .ndf-pill { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--green-bg); color: var(--green); }
+  .show-more-btn { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--navy); font-weight: 700; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -100,7 +117,7 @@
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
   <button data-tab="reports">Reports</button>
-  <button data-tab="queue">Queue</button>
+  <button data-tab="queue">Unfiled</button>
   <button data-tab="settings">Settings</button>
 </nav>
 
@@ -186,12 +203,29 @@
   </section>
 
   <section id="tab-reports">
-    <p class="hint">Your PC's real reports, synced every 30 minutes.</p>
-    <div id="reports-list"></div>
+    <div id="reports-list-view">
+      <p class="hint">Your PC's real reports, synced every 30 minutes. Tap one to see its expenses.</p>
+      <div id="reports-list"></div>
+    </div>
+    <div id="report-detail-view" class="hidden">
+      <div class="detail-header">
+        <button type="button" class="detail-back" id="report-detail-back" aria-label="Back to reports">&larr;</button>
+        <div>
+          <div class="detail-title" id="report-detail-title"></div>
+          <div class="detail-sub" id="report-detail-sub"></div>
+        </div>
+      </div>
+      <input id="report-detail-search" class="searchbox" type="text" placeholder="Search this report">
+      <div class="chiprow" id="report-detail-chips"></div>
+      <div class="detail-total" id="report-detail-total"></div>
+      <div id="report-detail-lines"></div>
+      <button type="button" class="show-more-btn hidden" id="report-detail-more">Show 25 more</button>
+      <p class="hint" id="report-detail-footer"></p>
+    </div>
   </section>
 
   <section id="tab-queue">
-    <p class="hint">Everything saved on this phone, synced or not. Tap one to view or edit it. Nothing is lost if the phone loses signal.</p>
+    <p class="hint">Expenses this phone captured that are not yet in a report. Tap one to view or edit it. Nothing is lost if the phone loses signal. Once its report is filed and sent on the PC, it drops off this list.</p>
     <div id="queue-list"></div>
   </section>
 
@@ -236,13 +270,18 @@ const LAST_PAID_KEY = 'eh_mobile_last_paid';
 const CARDS_KEY = 'eh_mobile_cards';
 const PROFILE_KEY = 'eh_mobile_profile';
 const REPORTS_CACHE_KEY = 'eh_mobile_reports_cache';
+const EXPENSES_CACHE_KEY = 'eh_mobile_expenses_cache';
+const DETAIL_PAGE_SIZE = 25;
 const DEFAULT_CARDS = ['Pro card', 'Perso card', 'Cash'];
-const PROFILE_TYPES = { Yaron: ['LTI', 'TP', 'INSEAD-YARON'], Ella: ['INSEAD-ELLA'] };
+// Medical added 2026-08-02: one shared yearly report both profiles can file
+// into (not per-person -- user ruling), so it appears on both lists. LTI/TP/
+// INSEAD-YARON stay Yaron-only, INSEAD-ELLA stays Ella-only, unchanged.
+const PROFILE_TYPES = { Yaron: ['LTI', 'TP', 'INSEAD-YARON', 'MEDICAL'], Ella: ['INSEAD-ELLA', 'MEDICAL'] };
 // The PC's real reports are keyed by FLOW (its internal enum), which is not
 // spelled the same as the phone's own type dropdown for Ella's flow.
 // Mapped explicitly here, matching expense_hub/mobile_pull.py's
 // REPORT_TYPE_TO_FLOW on the PC side -- never guessed.
-const PHONE_TYPE_TO_FLOW = { 'LTI': 'LTI', 'TP': 'TP', 'INSEAD-YARON': 'INSEAD-YARON', 'INSEAD-ELLA': 'ELLA' };
+const PHONE_TYPE_TO_FLOW = { 'LTI': 'LTI', 'TP': 'TP', 'INSEAD-YARON': 'INSEAD-YARON', 'INSEAD-ELLA': 'ELLA', 'MEDICAL': 'MEDICAL' };
 let photos = [];
 let editingLocalId = null;
 let selectedReportRef = '';
@@ -403,7 +442,7 @@ document.querySelectorAll('nav button').forEach((btn) => {
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
     document.getElementById('footer-capture').style.display = btn.dataset.tab === 'capture' ? 'flex' : 'none';
     if (btn.dataset.tab === 'queue') renderQueue();
-    if (btn.dataset.tab === 'reports') { renderReports(); fetchReports(); }
+    if (btn.dataset.tab === 'reports') { closeReportDetail(); renderReports(); fetchReports(); }
   });
 });
 
@@ -611,8 +650,26 @@ function openForEdit(localId) {
   document.querySelector('nav button[data-tab="capture"]').click();
 }
 
-function renderQueue() {
+// 2026-08-02 ruling: every capture remembers the report it was filed into.
+// Once that report stops appearing in the phone's cached report list --
+// because it was sent on the PC -- the capture drops off this phone too.
+// Never touches an unsynced capture (the PC has not seen it yet, so its
+// report's disappearance proves nothing) or one with no reportRef (it is
+// genuinely Unfiled and has nothing to drop against).
+function pruneQueueForSentReports() {
+  const cachedRefs = new Set(getCachedReports().map((r) => r.reportRef).filter(Boolean));
   const list = load();
+  const kept = list.filter((item) => {
+    if (!item.synced) return true;
+    if (!item.reportRef) return true;
+    return cachedRefs.has(item.reportRef);
+  });
+  if (kept.length !== list.length) save(kept);
+  return kept;
+}
+
+function renderQueue() {
+  const list = pruneQueueForSentReports();
   const host = document.getElementById('queue-list');
   if (!list.length) { host.innerHTML = '<p class="hint">Nothing captured yet.</p>'; return; }
   host.innerHTML = list.slice().reverse().map((item) => `
@@ -663,19 +720,35 @@ function getCachedReports() {
   try { return JSON.parse(localStorage.getItem(REPORTS_CACHE_KEY) || '[]'); } catch (e) { return []; }
 }
 
+// ---- Expense lines inside each Draft report, synced via PCExpenses ------
+// Only the last 90 days of a Draft report's lines are ever pushed here (PC
+// side window) -- see expense_hub/mobile_push.py's EXPENSE_WINDOW_DAYS.
+function getCachedExpenses() {
+  try { return JSON.parse(localStorage.getItem(EXPENSES_CACHE_KEY) || '[]'); } catch (e) { return []; }
+}
+
 async function fetchReports() {
   const url = localStorage.getItem(URL_KEY);
   if (!url || !navigator.onLine) return;
+  const code = getSyncCode();
+  const codePart = code ? '&code=' + encodeURIComponent(code) : '';
   try {
-    const code = getSyncCode();
-    const codePart = code ? '&code=' + encodeURIComponent(code) : '';
     const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'action=reports' + codePart);
     const json = await res.json();
     if (json.ok) {
       localStorage.setItem(REPORTS_CACHE_KEY, JSON.stringify(json.reports || []));
       renderReports();
+      pruneQueueForSentReports();
     }
   } catch (e) { /* offline or endpoint not updated yet -- reports tab just stays on last cache */ }
+  try {
+    const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'action=expenses' + codePart);
+    const json = await res.json();
+    if (json.ok) {
+      localStorage.setItem(EXPENSES_CACHE_KEY, JSON.stringify(json.expenses || []));
+      if (currentDetailReportRef) renderReportDetail();
+    }
+  } catch (e) { /* same as above -- detail screen just stays on last cache */ }
 }
 
 // Maps a PC flow code back to the phone's own type label where one exists
@@ -701,8 +774,7 @@ function visibleFlowsForProfile(profile) {
 
 // Reports are the PC's real ones (PCReports, pushed by mobile_push.py every
 // 30 minutes) -- type + name + status, same shape the PC's own report list
-// shows. No per-report expense count/total here: that data lives on the PC,
-// not in this cache.
+// shows. Tapping a row opens its expenses (report-detail-view below).
 function renderReports() {
   const host = document.getElementById('reports-list');
   const all = getCachedReports();
@@ -714,10 +786,123 @@ function renderReports() {
     html += `<div class="band">${FLOW_TO_PHONE_TYPE[flow] || flow}</div>`;
     rows.forEach((r) => {
       const statusClass = 'status-' + String(r.status || '').toLowerCase();
-      html += `<div class="report-row"><div>${r.name || '(unnamed)'}</div>${r.status ? `<span class="status-pill ${statusClass}">${r.status}</span>` : ''}</div>`;
+      html += `<div class="report-row" data-open-report="${r.reportRef}" style="cursor:pointer"><div>${r.name || '(unnamed)'}</div>${r.status ? `<span class="status-pill ${statusClass}">${r.status}</span>` : ''}</div>`;
     });
   });
   host.innerHTML = html || '<p class="hint">No reports from the PC yet. Check back after the next 30-minute sync.</p>';
+  host.querySelectorAll('[data-open-report]').forEach((row) => {
+    row.addEventListener('click', () => openReportDetail(row.dataset.openReport, all.find((r) => r.reportRef === row.dataset.openReport)));
+  });
+}
+
+// ---- Report detail: this report's expenses, filtered/paginated ----------
+let currentDetailReportRef = '';
+let currentDetailReport = null;
+let currentDetailChip = 'all';
+let currentDetailShown = DETAIL_PAGE_SIZE;
+
+function openReportDetail(reportRef, report) {
+  currentDetailReportRef = reportRef;
+  currentDetailReport = report || null;
+  currentDetailChip = 'all';
+  currentDetailShown = DETAIL_PAGE_SIZE;
+  document.getElementById('report-detail-search').value = '';
+  document.getElementById('reports-list-view').classList.add('hidden');
+  document.getElementById('report-detail-view').classList.remove('hidden');
+  renderReportDetail();
+}
+
+function closeReportDetail() {
+  currentDetailReportRef = '';
+  currentDetailReport = null;
+  document.getElementById('report-detail-view').classList.add('hidden');
+  document.getElementById('reports-list-view').classList.remove('hidden');
+}
+
+document.getElementById('report-detail-back').addEventListener('click', closeReportDetail);
+document.getElementById('report-detail-search').addEventListener('input', () => { currentDetailShown = DETAIL_PAGE_SIZE; renderReportDetail(); });
+document.getElementById('report-detail-more').addEventListener('click', () => { currentDetailShown += DETAIL_PAGE_SIZE; renderReportDetail(); });
+
+function detailLinesForReport() {
+  return getCachedExpenses().filter((x) => x.reportRef === currentDetailReportRef);
+}
+
+function monthBand(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+
+function renderReportDetail() {
+  const all = detailLinesForReport();
+  const query = document.getElementById('report-detail-search').value.trim().toLowerCase();
+  const needsAttentionCount = all.filter((x) => !x.hasReceipt).length;
+  const categories = [...new Set(all.map((x) => x.category).filter(Boolean))].sort();
+
+  document.getElementById('report-detail-title').textContent = (currentDetailReport && currentDetailReport.name) || 'Report';
+  document.getElementById('report-detail-sub').textContent = (currentDetailReport && FLOW_TO_PHONE_TYPE[currentDetailReport.type]) || (currentDetailReport && currentDetailReport.type) || '';
+
+  const chips = [['all', `All<span class="ex-chip"><span class="ct">${all.length}</span></span>`]];
+  if (needsAttentionCount) chips.push(['attention', `Needs attention<span class="ex-chip"><span class="ct">${needsAttentionCount}</span></span>`]);
+  chips.push(...categories.map((c) => [`cat:${c}`, c]));
+  document.getElementById('report-detail-chips').innerHTML = chips.map(([value, label]) =>
+    `<button type="button" class="chip ${currentDetailChip === value ? 'on' : ''}" data-chip="${value}">${label}</button>`
+  ).join('');
+  document.querySelectorAll('#report-detail-chips [data-chip]').forEach((btn) => {
+    btn.addEventListener('click', () => { currentDetailChip = btn.dataset.chip; currentDetailShown = DETAIL_PAGE_SIZE; renderReportDetail(); });
+  });
+
+  let filtered = all.slice();
+  if (currentDetailChip === 'attention') filtered = filtered.filter((x) => !x.hasReceipt);
+  else if (currentDetailChip.startsWith('cat:')) filtered = filtered.filter((x) => x.category === currentDetailChip.slice(4));
+  if (query) {
+    filtered = filtered.filter((x) =>
+      (x.category || '').toLowerCase().includes(query) || (x.description || '').toLowerCase().includes(query)
+    );
+  }
+  filtered.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  const total = filtered.reduce((sum, x) => sum + (Number(x.amount) || 0), 0);
+  document.getElementById('report-detail-total').innerHTML =
+    `<span>${filtered.length} expense${filtered.length === 1 ? '' : 's'}</span><span>${total.toFixed(2)}</span>`;
+
+  const shown = filtered.slice(0, currentDetailShown);
+  let html = '';
+  let lastBand = '';
+  shown.forEach((x) => {
+    const band = monthBand(x.date);
+    if (band !== lastBand) { html += `<div class="band">${band}</div>`; lastBand = band; }
+    const warnIco = !x.hasReceipt
+      ? '<svg class="warn-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l9 16H3z"/><path d="M12 9v5"/><path d="M12 17h.01"/></svg>'
+      : '';
+    const ndfPill = x.ndf ? '<span class="ndf-pill">NDF</span>' : '';
+    html += `<div class="exrow">
+      <div class="body">
+        <div class="nm">${warnIco}${escapeHtml(x.description || x.category || 'Expense')}</div>
+        <div class="meta">${x.date || ''} &middot; ${escapeHtml(x.category || '')}${x.paidWith ? ' &middot; ' + escapeHtml(x.paidWith) : ''}${!x.hasReceipt ? ' &middot; no receipt' : ''}</div>
+      </div>
+      ${ndfPill}
+      <div class="amt">${Number(x.amount || 0).toFixed(2)}</div>
+    </div>`;
+  });
+  document.getElementById('report-detail-lines').innerHTML = html || '<p class="hint">No expenses match this view.</p>';
+
+  const moreBtn = document.getElementById('report-detail-more');
+  if (filtered.length > shown.length) {
+    moreBtn.classList.remove('hidden');
+    moreBtn.textContent = `Show ${Math.min(DETAIL_PAGE_SIZE, filtered.length - shown.length)} more`;
+  } else {
+    moreBtn.classList.add('hidden');
+  }
+
+  document.getElementById('report-detail-footer').textContent = all.length
+    ? `Only the last 90 days of this report are shown here. Older lines are on the PC only.`
+    : '';
+}
+
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 document.getElementById('save-settings').addEventListener('click', () => {
