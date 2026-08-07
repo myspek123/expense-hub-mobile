@@ -98,6 +98,15 @@
   .detail-sub { font-size: 12px; color: var(--muted); }
   .detail-total { display: flex; justify-content: space-between; align-items: center; background: #eef2fa; border-radius: 8px; padding: 10px 12px; margin: 8px 0 10px; font-size: 13px; font-weight: 700; }
   .searchbox { width: 100%; margin-bottom: 8px; }
+  /* Tap-to-open search (2026-08-06). 44px touch target, per the mobile rule. */
+  .detail-searchrow { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .detail-searchrow .searchbox { margin-bottom: 0; }
+  .search-toggle {
+    flex: 0 0 auto; width: 44px; height: 44px; display: inline-grid; place-items: center;
+    border: 1px solid #ccd5e2; background: #fff; border-radius: 10px; color: #1F3864; padding: 0;
+  }
+  .search-toggle svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+  .search-toggle.is-open { background: #eef2fa; border-color: #1F3864; }
   .ex-chip .ct { display: inline-block; margin-left: 5px; background: var(--amber-bg); color: var(--amber); border-radius: 999px; padding: 0 6px; font-weight: 700; font-size: 11px; }
   .chip.on .ex-chip .ct, .chip.on.ex-chip .ct { background: #fff; color: var(--navy); }
   .exrow { display: flex; align-items: flex-start; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--line); }
@@ -215,9 +224,18 @@
           <div class="detail-sub" id="report-detail-sub"></div>
         </div>
       </div>
-      <input id="report-detail-search" class="searchbox" type="text" placeholder="Search this report">
-      <div class="chiprow" id="report-detail-chips"></div>
+      <!-- Count and total sit ABOVE the search, and the search is a magnifier
+           you tap rather than a permanently open box (2026-08-06, user's
+           item 1). The two numbers are what the screen is for; the search is
+           occasional. -->
       <div class="detail-total" id="report-detail-total"></div>
+      <div class="detail-searchrow">
+        <button type="button" class="search-toggle" id="report-detail-search-toggle" aria-label="Search this report" title="Search this report">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><line x1="16.5" y1="16.5" x2="21" y2="21"></line></svg>
+        </button>
+        <input id="report-detail-search" class="searchbox hidden" type="text" placeholder="Search this report">
+      </div>
+      <div class="chiprow" id="report-detail-chips"></div>
       <div id="report-detail-lines"></div>
       <button type="button" class="show-more-btn hidden" id="report-detail-more">Show 25 more</button>
       <p class="hint" id="report-detail-footer"></p>
@@ -807,6 +825,10 @@ function openReportDetail(reportRef, report) {
   currentDetailChip = 'all';
   currentDetailShown = DETAIL_PAGE_SIZE;
   document.getElementById('report-detail-search').value = '';
+  // Opening a report starts with the search closed again, or the magnifier
+  // would sit in its open state over an empty box from the last report.
+  document.getElementById('report-detail-search').classList.add('hidden');
+  document.getElementById('report-detail-search-toggle').classList.remove('is-open');
   document.getElementById('reports-list-view').classList.add('hidden');
   document.getElementById('report-detail-view').classList.remove('hidden');
   renderReportDetail();
@@ -821,6 +843,18 @@ function closeReportDetail() {
 
 document.getElementById('report-detail-back').addEventListener('click', closeReportDetail);
 document.getElementById('report-detail-search').addEventListener('input', () => { currentDetailShown = DETAIL_PAGE_SIZE; renderReportDetail(); });
+// Tapping the magnifier opens the box and focuses it; tapping again closes it
+// and clears the query, so the list never stays filtered by a search the user
+// can no longer see (2026-08-06).
+document.getElementById('report-detail-search-toggle').addEventListener('click', () => {
+  const box = document.getElementById('report-detail-search');
+  const toggle = document.getElementById('report-detail-search-toggle');
+  const opening = box.classList.contains('hidden');
+  box.classList.toggle('hidden', !opening);
+  toggle.classList.toggle('is-open', opening);
+  if (opening) { box.focus(); return; }
+  if (box.value) { box.value = ''; currentDetailShown = DETAIL_PAGE_SIZE; renderReportDetail(); }
+});
 document.getElementById('report-detail-more').addEventListener('click', () => { currentDetailShown += DETAIL_PAGE_SIZE; renderReportDetail(); });
 
 function detailLinesForReport() {
