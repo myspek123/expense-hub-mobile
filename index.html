@@ -117,6 +117,19 @@
   .warn-ico { color: var(--amber); flex: none; }
   .ndf-pill { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--green-bg); color: var(--green); }
   .show-more-btn { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--navy); font-weight: 700; font-size: 13px; }
+  /* A line this phone filed but the PC has not confirmed yet. It counts and it
+     is visible immediately (2026-08-12 ruling: waiting 30 minutes to see your
+     own action is unacceptable), and it says plainly that it is not confirmed
+     rather than pretending to be filed. */
+  .exrow.pending-row { background: var(--amber-bg); border-radius: 6px; padding-left: 8px; padding-right: 8px; }
+  .sync-pill { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--amber-bg); color: var(--amber); white-space: nowrap; }
+  /* Tapping a line opens it. The whole row is the target, so the hit area is
+     the full row height rather than a small chevron. */
+  .exrow { cursor: pointer; }
+  .exdetail { padding: 4px 0 12px; border-bottom: 1px solid var(--line); }
+  .exdetail .kv { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .exdetail img { width: 100%; border-radius: 8px; border: 1px solid var(--line); display: block; }
+  .exdetail .hint { font-size: 12px; }
 </style>
 </head>
 <body>
@@ -818,10 +831,44 @@ let currentDetailReportRef = '';
 let currentDetailReport = null;
 let currentDetailChip = 'all';
 let currentDetailShown = DETAIL_PAGE_SIZE;
+// Which line is open. One at a time: on a phone, two open receipts means
+// scrolling past one to reach the other.
+let openDetailLine = '';
+
+// The receipt panel under an opened line.
+//
+// A photo taken on this phone lives in the local capture queue as a data URL,
+// so it can be shown immediately with no network at all. A line that came from
+// the PC only carries hasReceipt, a boolean -- the image itself sits on the PC's
+// disk, which this page can never reach. Saying so plainly beats a broken image
+// or a spinner that never resolves.
+function receiptPanelHtml(line) {
+  const bits = [];
+  if (line.description) bits.push(escapeHtml(line.description));
+  if (line.currency) bits.push(escapeHtml(line.currency));
+  if (line.paidWith) bits.push('Paid with ' + escapeHtml(line.paidWith));
+  const meta = bits.length ? `<div class="kv">${bits.join(' &middot; ')}</div>` : '';
+  if (line.pending) {
+    const local = load().find((item) => item.localId === line.localId);
+    const photos = (local && local.photos) || [];
+    if (!photos.length) {
+      return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p></div>`;
+    }
+    const images = photos
+      .map((src) => `<img src="${escapeHtml(src)}" alt="Receipt">`)
+      .join('');
+    return `<div class="exdetail">${meta}${images}</div>`;
+  }
+  if (!line.hasReceipt) {
+    return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p></div>`;
+  }
+  return `<div class="exdetail">${meta}<p class="hint">This receipt is stored on the PC. Open the expense in Expense Hub to view it.</p></div>`;
+}
 
 function openReportDetail(reportRef, report) {
   currentDetailReportRef = reportRef;
   currentDetailReport = report || null;
+  openDetailLine = '';
   currentDetailChip = 'all';
   currentDetailShown = DETAIL_PAGE_SIZE;
   document.getElementById('report-detail-search').value = '';
@@ -857,8 +904,53 @@ document.getElementById('report-detail-search-toggle').addEventListener('click',
 });
 document.getElementById('report-detail-more').addEventListener('click', () => { currentDetailShown += DETAIL_PAGE_SIZE; renderReportDetail(); });
 
+// Two sources, deliberately merged (2026-08-12). The PC's own lines arrive in
+// PCExpenses, which only refreshes after a full round trip: phone pushes the
+// capture up, the PC pulls it in, the PC pushes its list back down. Until that
+// closes, a line this phone just filed existed nowhere on this screen and the
+// report read "0 expenses", which looks exactly like the filing failed. The
+// local capture queue already knows the answer, so it is shown straight away
+// and labelled as unconfirmed.
+function pendingKey(dateStr, amount, category) {
+  return [
+    String(dateStr || '').slice(0, 10),
+    (Number(amount) || 0).toFixed(2),
+    String(category || '').trim().toLowerCase(),
+  ].join('|');
+}
+
+function localLinesForReport() {
+  return load()
+    .filter((item) => item.reportRef && item.reportRef === currentDetailReportRef)
+    .map((item) => ({
+      localId: item.localId,
+      reportRef: item.reportRef,
+      date: item.date || '',
+      category: item.category || '',
+      description: item.description || '',
+      paidWith: item.paidWith || '',
+      amount: Number(item.amount) || 0,
+      currency: item.currency || '',
+      hasReceipt: (item.photos || []).length > 0,
+      ndf: false,
+      pending: true,
+      // Synced means the Sheet has it; the PC still has to pull it in and push
+      // its list back before it becomes a real line. Two different waits, and
+      // the user can tell them apart.
+      pendingLabel: item.synced ? 'Waiting for PC' : 'Not synced',
+    }));
+}
+
 function detailLinesForReport() {
-  return getCachedExpenses().filter((x) => x.reportRef === currentDetailReportRef);
+  const pcLines = getCachedExpenses().filter((x) => x.reportRef === currentDetailReportRef);
+  const known = new Set(pcLines.map((x) => pendingKey(x.date, x.amount, x.category)));
+  // Once the PC has the line, the PC's copy wins: it carries the real exp_id and
+  // whatever was changed on the desktop. Matching on date, amount and category
+  // because the phone's capture never learns the exp_id it was given.
+  const pending = localLinesForReport().filter(
+    (x) => !known.has(pendingKey(x.date, x.amount, x.category))
+  );
+  return pcLines.concat(pending);
 }
 
 function monthBand(dateStr) {
@@ -920,16 +1012,26 @@ function renderReportDetail() {
       ? '<svg class="warn-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l9 16H3z"/><path d="M12 9v5"/><path d="M12 17h.01"/></svg>'
       : '';
     const ndfPill = x.ndf ? '<span class="ndf-pill">NDF</span>' : '';
-    html += `<div class="exrow">
+    const syncPill = x.pending ? `<span class="sync-pill">${escapeHtml(x.pendingLabel)}</span>` : '';
+    const rowKey = x.pending ? `local:${x.localId}` : `pc:${x.expId || pendingKey(x.date, x.amount, x.category)}`;
+    html += `<div class="exrow ${x.pending ? 'pending-row' : ''}" data-line="${escapeHtml(rowKey)}">
       <div class="body">
         <div class="nm">${warnIco}${escapeHtml(x.description || x.category || 'Expense')}</div>
         <div class="meta">${ddmmyyyy(x.date)} &middot; ${escapeHtml(x.category || '')}${x.paidWith ? ' &middot; ' + escapeHtml(x.paidWith) : ''}${!x.hasReceipt ? ' &middot; no receipt' : ''}</div>
       </div>
+      ${syncPill}
       ${ndfPill}
       <div class="amt">${Number(x.amount || 0).toFixed(2)}</div>
     </div>`;
+    if (openDetailLine === rowKey) html += receiptPanelHtml(x);
   });
   document.getElementById('report-detail-lines').innerHTML = html || '<p class="hint">No expenses match this view.</p>';
+  document.querySelectorAll('#report-detail-lines [data-line]').forEach((row) => {
+    row.addEventListener('click', () => {
+      openDetailLine = openDetailLine === row.dataset.line ? '' : row.dataset.line;
+      renderReportDetail();
+    });
+  });
 
   const moreBtn = document.getElementById('report-detail-more');
   if (filtered.length > shown.length) {
