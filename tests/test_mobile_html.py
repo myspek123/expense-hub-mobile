@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="1.9"' in HTML
-    assert '>v1.9</span>' in HTML
+    assert 'content="2.0"' in HTML
+    assert '>v2.0</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v8" in service_worker
+    assert "eh-mobile-v9" in service_worker
 
 
 # -- 2026-08-02: Medical on both profiles, Queue renamed Unfiled, report
@@ -65,17 +65,50 @@ def test_a_capture_the_pc_already_has_leaves_this_phone():
     to do and a timer that quietly deletes a job is worse than a long list.
     """
     prune = HTML[HTML.index("function pruneQueueForSentReports") :]
-    prune = prune[: prune.index("function queueState")]
+    prune = prune[: prune.index("function queueRowsToShow")]
     assert "if (!item.synced) return true;" in prune
-    # The PC holds a matching line inside a report: it is filed, so it goes.
-    assert "if (pcKeys.has(pendingKey(item.date, item.amount, item.category))) return false;" in prune
-    # Its report is gone from the PC's list, meaning sent (2026-08-02 ruling).
+    # Only a report gone from the PC's list actually deletes a capture.
     assert "if (item.reportRef) return cachedRefs.has(item.reportRef);" in prune
-    # Everything else stays, with no expiry whatsoever.
     assert "    return true;\n  });" in prune
     assert "QUEUE_KEEP_DAYS" not in HTML
     assert "captureAgeDays" not in HTML
-    assert "function renderQueue() {\n  const list = pruneQueueForSentReports();" in HTML
+
+    # Showing and storing are two different questions. The Sync tab hides a
+    # capture the PC already holds; storage keeps it, because that capture
+    # carries the phone's own photo and is what makes the expense openable and
+    # editable here. Deleting it took the user's own expenses away from him
+    # minutes after he made them (13/08/2026, his item 3).
+    show = HTML[HTML.index("function queueRowsToShow"):]
+    show = show[: show.index("function queueState")]
+    assert "pcKeys.has(pendingKey(item.date, item.amount, item.category))" in show
+    assert "pruneQueueForSentReports()" in show
+    assert "function renderQueue() {\n  const list = queueRowsToShow();" in HTML
+
+
+def test_quick_save_asks_for_nothing_but_the_photo():
+    # Quick save is a photo and nothing else: snap the receipt on the way out
+    # and deal with it later. Requiring a report type broke that (13/08/2026).
+    assert "function saveCapture(opts) {" in HTML
+    assert "if (!(opts && opts.quick) && !validateCapture()) return false;" in HTML
+    assert "saveCapture({ quick: true });" in HTML
+
+
+def test_the_expense_date_is_never_rendered_by_the_browser():
+    # lang="en-GB" did not work and could not: a native date input takes its
+    # format from the DEVICE locale, not the document. The visible field is
+    # ours now, and the native input is kept only to borrow its calendar.
+    assert 'id="f-date-text"' in HTML
+    assert 'id="f-date" type="date" class="date-native"' in HTML
+    assert "function setExpenseDate(iso)" in HTML
+    assert "function isoFromDdmmyyyy(text)" in HTML
+    assert "document.getElementById('f-date-text').value = ddmmyyyy(text);" in HTML
+    assert "date: expenseDateIso()," in HTML
+
+
+def test_a_warning_is_amber_and_only_a_real_failure_is_red():
+    assert "#toast.show { display: block; background: var(--amber-bg);" in HTML
+    assert "#toast.show.is-error" in HTML
+    assert "function showToast(message, isError)" in HTML
 
 
 def test_a_receiptless_capture_is_not_refused_by_the_pc():

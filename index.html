@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="1.9">
+<meta name="application-version" content="2.0">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -36,6 +36,18 @@
   .row { display: flex; gap: 12px; }
   .row .field { flex: 1; min-width: 0; }
   .datetools { display: flex; gap: 7px; margin-top: 7px; }
+  /* The visible date is a text box under our own control. A native
+     <input type="date"> takes its format from the DEVICE locale, not from the
+     document, so lang="en-GB" did not and could not fix mm/dd/yyyy on a
+     US-locale phone. The native input stays for its calendar only. */
+  .datewrap { display: flex; gap: 8px; align-items: stretch; }
+  .datewrap #f-date-text { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; }
+  .date-pick {
+    flex: 0 0 44px; width: 44px; height: 40px; display: inline-grid; place-items: center;
+    border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--navy); padding: 0;
+  }
+  .date-pick svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+  .date-native { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
   .chip { padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: #fff; font-size: 13px; }
   .chip.on { background: var(--navy); border-color: var(--navy); color: #fff; }
   .chiprow { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
@@ -81,7 +93,11 @@
   .btn.quick { border-color: var(--amber); color: #8a5711; background: #fffaf0; }
   .btn.small { flex: none; height: 40px; padding: 0 14px; font-size: 13px; }
   #toast { position: fixed; left: 16px; right: 16px; bottom: 76px; padding: 10px 14px; border-radius: 8px; font-size: 13px; z-index: 30; display: none; }
-  #toast.show { display: block; background: #fff4f2; border: 1px solid #e9a49e; color: #b42318; }
+  /* Amber, not red. Almost everything this toast says is information ("nothing
+     was waiting to send"), and red reads as something broke. The user made the
+     same point about the other apps on 13/08/2026. */
+  #toast.show { display: block; background: var(--amber-bg); border: 1px solid #e0c07a; color: #7a5200; }
+  #toast.show.is-error { background: #fff4f2; border-color: #e9a49e; color: var(--danger); }
   #queue-list { margin-top: 4px; }
   .qrow { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
   .qrow .status { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
@@ -155,7 +171,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="app-version">v1.9</span></header>
+<header><h1>Expense Hub</h1><span class="app-version">v2.0</span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -181,7 +197,17 @@
     </div>
     <div class="field">
       <label>Expense date</label>
-      <input id="f-date" type="date">
+      <!-- The date the user READS and TYPES is this text box, always
+           dd/mm/yyyy. The native picker is still here behind the calendar
+           button, but it never renders the value on screen. See
+           setExpenseDate for why the lang attribute could not do this. -->
+      <div class="datewrap">
+        <input id="f-date-text" type="text" inputmode="numeric" maxlength="10" autocomplete="off" aria-label="Expense date, day slash month slash year">
+        <button type="button" class="date-pick" id="f-date-pick" aria-label="Pick a date from the calendar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+        </button>
+        <input id="f-date" type="date" class="date-native" tabindex="-1" aria-hidden="true">
+      </div>
       <div class="datetools">
         <button type="button" class="chip" data-offset="0">Today</button>
         <button type="button" class="chip" data-offset="-1">Yesterday</button>
@@ -350,9 +376,10 @@ function load() { try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]
 function save(list) { localStorage.setItem(STORE_KEY, JSON.stringify(list)); }
 function uid() { return 'm' + Date.now() + Math.random().toString(36).slice(2, 8); }
 
-function showToast(message) {
+function showToast(message, isError) {
   const toast = document.getElementById('toast');
   toast.textContent = message;
+  toast.classList.toggle('is-error', Boolean(isError));
   toast.classList.add('show');
   setTimeout(() => toast.classList.remove('show'), 4000);
 }
@@ -532,21 +559,74 @@ function restoreLastScreen() {
   else localStorage.removeItem(OPEN_REPORT_KEY);
 }
 
+// The one place the expense date is written, so the text box the user reads
+// and the native picker can never disagree.
+//
+// 13/08/2026, second attempt. The first was lang="en-GB" on <html>, which was
+// simply wrong: a native <input type="date"> renders its value using the
+// DEVICE locale, not the document language, so a US-locale phone still showed
+// mm/dd/yyyy and no HTML attribute can change that. The only sustainable fix is
+// to stop letting the browser render the date at all. The text box is ours and
+// is always dd/mm/yyyy; the native input is kept, visually gone, purely to
+// borrow its calendar. Any future date field on any surface must do the same.
+function setExpenseDate(iso) {
+  const text = String(iso || '').slice(0, 10);
+  document.getElementById('f-date').value = text;
+  document.getElementById('f-date-text').value = ddmmyyyy(text);
+}
+
+function expenseDateIso() {
+  return document.getElementById('f-date').value || '';
+}
+
+// dd/mm/yyyy back to the ISO the rest of the app and the Sheet use. Anything
+// that is not a real date leaves the stored value alone rather than guessing.
+function isoFromDdmmyyyy(text) {
+  const parts = String(text || '').trim().split(/[\/.\-\s]+/);
+  if (parts.length !== 3) return '';
+  const [d, m, y] = parts;
+  if (!/^\d{1,2}$/.test(d) || !/^\d{1,2}$/.test(m) || !/^\d{4}$/.test(y)) return '';
+  const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  const check = new Date(iso + 'T00:00:00');
+  return isNaN(check.getTime()) ? '' : iso;
+}
+
 function selectDateOffset(offset) {
   const d = new Date();
   d.setDate(d.getDate() + offset);
-  document.getElementById('f-date').value = d.toISOString().slice(0, 10);
+  setExpenseDate(new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10));
   document.querySelectorAll('[data-offset]').forEach((b) => b.classList.toggle('on', Number(b.dataset.offset) === offset));
 }
 
-document.querySelectorAll('[data-offset]').forEach((btn) => {
-  btn.addEventListener('click', () => selectDateOffset(Number(btn.dataset.offset)));
+document.getElementById('f-date-pick').addEventListener('click', () => {
+  const native = document.getElementById('f-date');
+  if (typeof native.showPicker === 'function') { native.showPicker(); return; }
+  // Older browsers have no showPicker: fall back to making the native input
+  // real for a moment so its own calendar can be opened.
+  native.classList.remove('date-native');
+  native.focus();
+  native.click();
 });
 
-// Typing the date by hand means neither preset is the actual selection
-// any more -- leaving one lit would misrepresent what is really chosen.
-document.getElementById('f-date').addEventListener('input', () => {
+document.getElementById('f-date').addEventListener('change', () => {
+  setExpenseDate(document.getElementById('f-date').value);
   document.querySelectorAll('[data-offset]').forEach((b) => b.classList.remove('on'));
+});
+
+document.getElementById('f-date-text').addEventListener('input', () => {
+  const iso = isoFromDdmmyyyy(document.getElementById('f-date-text').value);
+  if (iso) document.getElementById('f-date').value = iso;
+  document.querySelectorAll('[data-offset]').forEach((b) => b.classList.remove('on'));
+});
+
+// Typing a partial date and leaving the field puts back whatever is actually
+// stored, so the box can never show something the app did not accept.
+document.getElementById('f-date-text').addEventListener('blur', () => {
+  setExpenseDate(document.getElementById('f-date').value);
+});
+
+document.querySelectorAll('[data-offset]').forEach((btn) => {
+  btn.addEventListener('click', () => selectDateOffset(Number(btn.dataset.offset)));
 });
 
 // One reader for the queue's photo shape, used by every screen that shows a
@@ -659,7 +739,6 @@ function clearForm() {
   document.getElementById('f-photo').value = '';
   photos = [];
   renderAttachStrip();
-  document.getElementById('f-date').valueAsDate = new Date();
   selectDateOffset(0);
 }
 
@@ -675,8 +754,13 @@ function validateCapture() {
   return true;
 }
 
-function saveCapture() {
-  if (!validateCapture()) return false;
+function saveCapture(opts) {
+  // Quick save is a photo and nothing else, by design: snap the receipt on the
+  // way out of the restaurant and deal with it later. Requiring a report type
+  // here (added 31/07 for the full Save, correctly) broke that, and the user
+  // said so on 13/08. It is safe now: a capture with no type lands in Unfiled
+  // on the PC with a note asking for one, which is exactly what Unfiled is for.
+  if (!(opts && opts.quick) && !validateCapture()) return false;
   const paidBtn = document.querySelector('[data-paid].on');
   const paidWith = paidBtn ? paidBtn.dataset.paid : '';
   const list = load();
@@ -686,7 +770,7 @@ function saveCapture() {
     reportType: document.getElementById('f-report-type').value,
     reportName: document.getElementById('f-report-name').value,
     reportRef: selectedReportRef,
-    date: document.getElementById('f-date').value,
+    date: expenseDateIso(),
     category: document.getElementById('f-category').value,
     amount: document.getElementById('f-amount').value,
     currency: document.getElementById('f-currency').value,
@@ -718,7 +802,7 @@ function saveCapture() {
 document.getElementById('btn-save').addEventListener('click', () => saveCapture());
 document.getElementById('btn-quick-save').addEventListener('click', () => {
   if (!photos.length) { showToast('Attach a photo first, then Quick save.'); return; }
-  saveCapture();
+  saveCapture({ quick: true });
 });
 
 function openForEdit(localId) {
@@ -734,7 +818,7 @@ function openForEdit(localId) {
   document.getElementById('f-report-type').value = item.reportType || '';
   document.getElementById('f-report-name').value = item.reportName || '';
   selectedReportRef = item.reportRef || '';
-  document.getElementById('f-date').value = item.date || '';
+  setExpenseDate(item.date || '');
   document.querySelectorAll('[data-offset]').forEach((b) => b.classList.remove('on'));
   document.getElementById('f-category').value = item.category || '';
   document.getElementById('f-amount').value = item.amount || '';
@@ -770,16 +854,30 @@ function openForEdit(localId) {
 //      with no report stays until it gets one, which is the point of it.
 function pruneQueueForSentReports() {
   const cachedRefs = new Set(getCachedReports().map((r) => r.reportRef).filter(Boolean));
-  const pcKeys = new Set(getCachedExpenses().map((x) => pendingKey(x.date, x.amount, x.category)));
   const list = load();
+  // Only a capture whose report has left the PC's list is actually thrown
+  // away. Everything else is KEPT in storage, because the capture carries the
+  // photo taken on this phone and is the only thing that makes the expense
+  // openable and editable here. An earlier version of this deleted a capture
+  // as soon as the PC confirmed it, which is what took the user's own expenses
+  // away from him minutes after he made them (13/08/2026).
   const kept = list.filter((item) => {
     if (!item.synced) return true;
-    if (pcKeys.has(pendingKey(item.date, item.amount, item.category))) return false;
     if (item.reportRef) return cachedRefs.has(item.reportRef);
     return true;
   });
   if (kept.length !== list.length) save(kept);
   return kept;
+}
+
+// What the Sync tab SHOWS, which is a different question from what is stored.
+// The user's rule: a capture the PC already holds in a report is finished with
+// and should not sit in the sync list. It stays in storage all the same.
+function queueRowsToShow() {
+  const pcKeys = new Set(getCachedExpenses().map((x) => pendingKey(x.date, x.amount, x.category)));
+  return pruneQueueForSentReports().filter(
+    (item) => !(item.synced && pcKeys.has(pendingKey(item.date, item.amount, item.category)))
+  );
 }
 
 // Three states, not two. "Synced" used to mean only "the Sheet has it", which
@@ -796,7 +894,7 @@ function queueState(item) {
 }
 
 function renderQueue() {
-  const list = pruneQueueForSentReports();
+  const list = queueRowsToShow();
   const host = document.getElementById('queue-list');
   if (!list.length) { host.innerHTML = '<p class="hint">Nothing waiting. Everything this phone captured is on the PC.</p>'; return; }
   host.innerHTML = list.slice().reverse().map((item) => {
@@ -877,7 +975,7 @@ async function attemptSync(userAsked) {
   }
   if (!userAsked) return;
   if (failed) {
-    showToast("Couldn't reach the sync. Check the URL and code in Settings, then try again.");
+    showToast("Couldn't reach the sync. Check the URL and code in Settings, then try again.", true);
   } else if (sent) {
     showToast(`Sent ${sent} to the Sheet. The PC picks them up on its next run.`);
   } else {
