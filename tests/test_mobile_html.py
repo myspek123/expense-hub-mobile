@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="1.7"' in HTML
-    assert '>v1.7</span>' in HTML
+    assert 'content="1.8"' in HTML
+    assert '>v1.8</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v6" in service_worker
+    assert "eh-mobile-v7" in service_worker
 
 
 # -- 2026-08-02: Medical on both profiles, Queue renamed Unfiled, report
@@ -43,19 +43,89 @@ def test_medical_is_offered_on_both_profiles():
     assert "'MEDICAL': 'MEDICAL'" in HTML
 
 
-def test_queue_tab_relabeled_unfiled_without_renaming_its_internal_id():
-    assert '<button data-tab="queue">Unfiled</button>' in HTML
+def test_queue_tab_is_called_sync_without_renaming_its_internal_id():
+    # Renamed from Unfiled on 13/08/2026. The old name was wrong twice over:
+    # the list holds captures that ARE in a report, and "unfiled" described
+    # neither what is in it nor what leaves it.
+    assert '<button data-tab="queue">Sync</button>' in HTML
+    assert "Unfiled</button>" not in HTML
     # The internal id stays "queue" -- only the visible label changed, so
     # nothing else in the file needed touching.
     assert 'id="tab-queue"' in HTML
 
 
-def test_synced_capture_drops_off_once_its_report_is_no_longer_cached():
+def test_a_capture_the_pc_already_has_leaves_this_phone():
+    # The old rule had a hole: a synced capture with no reportRef was kept
+    # FOREVER, because its only exit was "its report vanished from the PC" and
+    # it had no report. Every straight-to-unfiled receipt piled up permanently.
     prune = HTML[HTML.index("function pruneQueueForSentReports") :]
+    prune = prune[: prune.index("function queueState")]
     assert "if (!item.synced) return true;" in prune
-    assert "if (!item.reportRef) return true;" in prune
-    assert "cachedRefs.has(item.reportRef)" in prune
+    # 1. the PC's own pushed list already holds a matching line
+    assert "if (pcKeys.has(pendingKey(item.date, item.amount, item.category))) return false;" in prune
+    # 2. its report is gone from the PC's list (the 2026-08-02 ruling)
+    assert "if (item.reportRef) return cachedRefs.has(item.reportRef);" in prune
+    # 3. and a floor, so nothing can be carried forever again
+    assert "return captureAgeDays(item.localId) < QUEUE_KEEP_DAYS;" in prune
+    assert "const QUEUE_KEEP_DAYS = 30;" in HTML
+    # The age comes from the localId, which already embeds Date.now().
+    assert "function captureAgeDays(localId)" in HTML
     assert "function renderQueue() {\n  const list = pruneQueueForSentReports();" in HTML
+
+
+def test_a_receiptless_capture_is_not_refused_by_the_pc():
+    # The phone's Save button deliberately does not require a photo, so the
+    # importer must not require one either (13/08/2026).
+    pull = (
+        Path(r"C:\Users\2simp\expense-hub") / "expense_hub" / "mobile_pull.py"
+    )
+    if not pull.is_file():
+        return
+    source = pull.read_text(encoding="utf-8")
+    assert '"no usable photo in the export"' not in source
+    assert "uploads[0] if uploads else None" in source
+
+
+def test_sync_now_says_what_it_is_doing():
+    # It used to push silently and never pull, so pressing it with nothing
+    # queued did nothing visible at all and read as a broken button.
+    assert "let syncInFlight = false;" in HTML
+    assert "async function attemptSync(userAsked)" in HTML
+    sync = HTML[HTML.index("async function attemptSync(userAsked)"):]
+    sync = sync[: sync.index("// ---- Reports:")]
+    assert "updateSyncStrip(queued ? `Sending ${queued}...` : 'Checking the PC...');" in sync
+    assert "await fetchReports();" in sync
+    assert "showToast(" in sync
+    assert "#sync-strip.busy" in HTML
+
+
+def test_a_rejected_line_is_visible_on_the_phone_too():
+    # A line refused on the PC looked completely normal on the phone, and the
+    # phone's total counted it, so the two apps disagreed (13/08/2026).
+    assert "const rejectedPill = x.rejected" in HTML
+    assert "rejected-pill" in HTML
+    assert ".exrow.is-rejected .amt" in HTML
+    assert "const rejectedTotal = rejectedLines.reduce(" in HTML
+    push = (
+        Path(r"C:\Users\2simp\expense-hub") / "expense_hub" / "mobile_push.py"
+    )
+    if not push.is_file():
+        return
+    source = push.read_text(encoding="utf-8")
+    assert '"rejected": bool(line.get("rejected")),' in source
+    assert '"rejectedNote": line.get("rejected_note", ""),' in source
+
+
+def test_the_native_date_picker_follows_the_dd_mm_yyyy_rule():
+    # A native <input type="date"> takes its format from the document
+    # language. "en" gave mm/dd/yyyy. The user overrode the design rules'
+    # native-picker exemption on 13/08/2026.
+    assert '<html lang="en-GB">' in HTML
+    assert '<html lang="en">' not in HTML
+
+
+def test_the_description_field_carries_no_placeholder():
+    assert 'placeholder="What this was for"' not in HTML
 
 
 def test_report_detail_view_exists_with_filters_and_pagination():
