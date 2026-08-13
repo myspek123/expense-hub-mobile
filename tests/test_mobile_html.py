@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="1.8"' in HTML
-    assert '>v1.8</span>' in HTML
+    assert 'content="1.9"' in HTML
+    assert '>v1.9</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v7" in service_worker
+    assert "eh-mobile-v8" in service_worker
 
 
 # -- 2026-08-02: Medical on both profiles, Queue renamed Unfiled, report
@@ -55,21 +55,26 @@ def test_queue_tab_is_called_sync_without_renaming_its_internal_id():
 
 
 def test_a_capture_the_pc_already_has_leaves_this_phone():
-    # The old rule had a hole: a synced capture with no reportRef was kept
-    # FOREVER, because its only exit was "its report vanished from the PC" and
-    # it had no report. Every straight-to-unfiled receipt piled up permanently.
+    """The user's rule, 13/08/2026: "expense with no report should stay forever.
+    expense with a report that is synced on PC should not stay in sync at all."
+
+    The old code had the opposite hole: it only ever let go of a capture whose
+    reportRef had disappeared, so anything captured straight to unfiled was kept
+    permanently. A first attempt at fixing it expired unconfirmed captures after
+    30 days; he rejected that, because a capture with no report is a job still
+    to do and a timer that quietly deletes a job is worse than a long list.
+    """
     prune = HTML[HTML.index("function pruneQueueForSentReports") :]
     prune = prune[: prune.index("function queueState")]
     assert "if (!item.synced) return true;" in prune
-    # 1. the PC's own pushed list already holds a matching line
+    # The PC holds a matching line inside a report: it is filed, so it goes.
     assert "if (pcKeys.has(pendingKey(item.date, item.amount, item.category))) return false;" in prune
-    # 2. its report is gone from the PC's list (the 2026-08-02 ruling)
+    # Its report is gone from the PC's list, meaning sent (2026-08-02 ruling).
     assert "if (item.reportRef) return cachedRefs.has(item.reportRef);" in prune
-    # 3. and a floor, so nothing can be carried forever again
-    assert "return captureAgeDays(item.localId) < QUEUE_KEEP_DAYS;" in prune
-    assert "const QUEUE_KEEP_DAYS = 30;" in HTML
-    # The age comes from the localId, which already embeds Date.now().
-    assert "function captureAgeDays(localId)" in HTML
+    # Everything else stays, with no expiry whatsoever.
+    assert "    return true;\n  });" in prune
+    assert "QUEUE_KEEP_DAYS" not in HTML
+    assert "captureAgeDays" not in HTML
     assert "function renderQueue() {\n  const list = pruneQueueForSentReports();" in HTML
 
 

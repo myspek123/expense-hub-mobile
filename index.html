@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="1.8">
+<meta name="application-version" content="1.9">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -155,7 +155,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="app-version">v1.8</span></header>
+<header><h1>Expense Hub</h1><span class="app-version">v1.9</span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -280,7 +280,7 @@
     <!-- Renamed from "Unfiled" on 13/08/2026. The old name was wrong twice
          over: this list holds captures that ARE in a report as well, and it
          never described what actually drops off it. It is the sync queue. -->
-    <p class="hint">Everything this phone captured, and where it has got to. Tap one to view or edit it. Nothing is lost if the phone loses signal. A line leaves this list once the PC has it, or once its report is sent on the PC.</p>
+    <p class="hint">Everything this phone captured, and where it has got to. Tap one to view or edit it. Nothing is lost if the phone loses signal. A line stays here until the PC has it in a report. A capture with no report yet stays for as long as it takes, so nothing is ever quietly dropped.</p>
     <div id="queue-list"></div>
   </section>
 
@@ -750,33 +750,24 @@ function openForEdit(localId) {
 // Once that report stops appearing in the phone's cached report list --
 // because it was sent on the PC -- the capture drops off this phone too.
 // Never touches an unsynced capture (the PC has not seen it yet, so its
-// report's disappearance proves nothing) or one with no reportRef (it is
-// genuinely Unfiled and has nothing to drop against).
-// How long a capture the PC has never confirmed is kept before this phone
-// stops holding on to it. Its own localId carries the moment it was made
-// ('m' + Date.now() + random), so no extra field is needed to know its age.
-const QUEUE_KEEP_DAYS = 30;
-
-function captureAgeDays(localId) {
-  const digits = String(localId || '').match(/^m(\d{13})/);
-  if (!digits) return 0;
-  return (Date.now() - Number(digits[1])) / 86400000;
-}
-
-// A capture leaves this phone when it is genuinely finished with, and the old
-// rule had a hole the user found on 13/08/2026: a synced capture with no
-// reportRef was kept FOREVER, because the only exit was "its report vanished
-// from the PC's list" and it had no report. So every receipt ever captured
-// straight to Unfiled piled up on the phone permanently, even years after the
-// PC took it in. Four rules now, in order:
-//   1. Not synced. The PC has never seen it, so it stays whatever its age.
-//   2. The PC's own pushed expense list already holds a matching line. The PC
-//      has it, wherever it filed it, so this phone is done with it.
-//   3. It points at a report that is no longer in the PC's list, which means
-//      that report was sent or closed. The 2026-08-02 ruling, unchanged.
-//   4. Otherwise it expires after QUEUE_KEEP_DAYS. This is the hole's actual
-//      floor: something the PC has neither confirmed nor closed after a month
-//      is not going to be, and it is not worth carrying forever.
+// What leaves this phone, and what does not. The user's rule, 13/08/2026:
+// "expense with no report should stay forever. expense with a report that is
+// synced on PC should not stay in sync at all."
+//
+// An earlier version of this expired anything the PC had not confirmed after
+// 30 days. He rejected it, correctly: a capture with no report is a job still
+// to do, and a timer that quietly deletes a job is worse than a long list. So
+// there is no time limit here at all. Four rules, in order:
+//   1. Not synced. The PC has never seen it, so it always stays.
+//   2. The PC holds a matching line inside one of its reports. It is filed and
+//      it is safe, so this phone is finished with it. This is the rule that
+//      closes the real hole: the old code only ever let go of a capture whose
+//      reportRef had disappeared, so anything captured straight to unfiled was
+//      kept permanently, even long after the PC took it in.
+//   3. It points at a report the PC no longer lists, meaning that report was
+//      sent or closed. The 2026-08-02 ruling, unchanged.
+//   4. Otherwise it stays, with no expiry. In practice that means a capture
+//      with no report stays until it gets one, which is the point of it.
 function pruneQueueForSentReports() {
   const cachedRefs = new Set(getCachedReports().map((r) => r.reportRef).filter(Boolean));
   const pcKeys = new Set(getCachedExpenses().map((x) => pendingKey(x.date, x.amount, x.category)));
@@ -785,7 +776,7 @@ function pruneQueueForSentReports() {
     if (!item.synced) return true;
     if (pcKeys.has(pendingKey(item.date, item.amount, item.category))) return false;
     if (item.reportRef) return cachedRefs.has(item.reportRef);
-    return captureAgeDays(item.localId) < QUEUE_KEEP_DAYS;
+    return true;
   });
   if (kept.length !== list.length) save(kept);
   return kept;
