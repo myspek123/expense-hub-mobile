@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="2.0"' in HTML
-    assert '>v2.0</span>' in HTML
+    assert 'content="2.1"' in HTML
+    assert '>v2.1</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v9" in service_worker
+    assert "eh-mobile-v10" in service_worker
 
 
 # -- 2026-08-02: Medical on both profiles, Queue renamed Unfiled, report
@@ -254,3 +254,16 @@ def test_report_detail_and_queue_rows_use_the_formatter_not_the_raw_date():
     assert "${ddmmyyyy(item.date)}" in HTML
     assert "${x.date || ''}" not in HTML
     assert "${item.date || ''} &middot;" not in HTML
+
+
+def test_a_line_this_phone_captured_can_be_edited_from_inside_the_report():
+    # The user made an expense on the phone and then could not edit it from the
+    # report he had just put it in (13/08/2026, his item 4). The queued capture
+    # is matched by localId while it is still waiting, and by date/amount/
+    # category once the PC has it, so it stays editable either way.
+    assert "function localCaptureFor(line)" in HTML
+    assert 'data-edit-line="${escapeHtml(local.localId)}"' in HTML
+    assert "openForEdit(button.dataset.editLine)" in HTML
+    # On the opened panel, not the row, so looking at a receipt never starts an
+    # edit by accident.
+    assert "event.stopPropagation();" in HTML

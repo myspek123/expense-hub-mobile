@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="2.0">
+<meta name="application-version" content="2.1">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -167,11 +167,18 @@
   .exdetail .kv { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
   .exdetail img { width: 100%; border-radius: 8px; border: 1px solid var(--line); display: block; }
   .exdetail .hint { font-size: 12px; }
+  /* Edit, inside the opened line. 44px so it meets the touch floor, and 14px
+     because it is a control the user reads. */
+  .line-edit {
+    display: block; width: 100%; min-height: 44px; margin-top: 10px;
+    border: 1px solid var(--navy); border-radius: 8px; background: #fff;
+    color: var(--navy); font-size: 14px; font-weight: 700;
+  }
 </style>
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="app-version">v2.0</span></header>
+<header><h1>Expense Hub</h1><span class="app-version">v2.1</span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1079,17 +1086,32 @@ let openDetailLine = '';
 // the PC only carries hasReceipt, a boolean -- the image itself sits on the PC's
 // disk, which this page can never reach. Saying so plainly beats a broken image
 // or a spinner that never resolves.
+// The queued capture behind a report line, if this phone is the one that made
+// it. A line still waiting for the PC is matched by its localId; once the PC
+// has it the line is a PC line, so it is matched on date, amount and category
+// the same way the two lists are merged. This is what makes an expense you
+// captured here still openable and editable here (13/08/2026, his item 4).
+function localCaptureFor(line) {
+  const queue = load();
+  if (line.localId) return queue.find((item) => item.localId === line.localId) || null;
+  const key = pendingKey(line.date, line.amount, line.category);
+  return queue.find((item) => pendingKey(item.date, item.amount, item.category) === key) || null;
+}
+
 function receiptPanelHtml(line) {
   const bits = [];
   if (line.description) bits.push(escapeHtml(line.description));
   if (line.currency) bits.push(escapeHtml(line.currency));
   if (line.paidWith) bits.push('Paid with ' + escapeHtml(line.paidWith));
   const meta = bits.length ? `<div class="kv">${bits.join(' &middot; ')}</div>` : '';
-  if (line.pending) {
-    const local = load().find((item) => item.localId === line.localId);
-    const shots = (local && local.photos) || [];
+  const local = localCaptureFor(line);
+  const editButton = local
+    ? `<button type="button" class="line-edit" data-edit-line="${escapeHtml(local.localId)}">Edit this expense</button>`
+    : '';
+  if (local) {
+    const shots = local.photos || [];
     if (!shots.length) {
-      return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p></div>`;
+      return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p>${editButton}</div>`;
     }
     // A queued photo is stored as { base64, name } by the capture screen, not
     // as a bare data-URL string. Mapping the object straight into src= gave
@@ -1104,7 +1126,7 @@ function receiptPanelHtml(line) {
       }
       return `<img src="${escapeHtml(src)}" alt="Receipt">`;
     }).join('');
-    return `<div class="exdetail">${meta}${images}</div>`;
+    return `<div class="exdetail">${meta}${images}${editButton}</div>`;
   }
   if (!line.hasReceipt) {
     return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p></div>`;
@@ -1344,6 +1366,14 @@ function renderReportDetail() {
     row.addEventListener('click', () => {
       openDetailLine = openDetailLine === row.dataset.line ? '' : row.dataset.line;
       renderReportDetail();
+    });
+  });
+  // Inside the opened panel, not on the row, so opening a line to look at its
+  // receipt can never be mistaken for starting an edit.
+  document.querySelectorAll('#report-detail-lines [data-edit-line]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openForEdit(button.dataset.editLine);
     });
   });
 
