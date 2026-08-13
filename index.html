@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="1.6">
+<meta name="application-version" content="1.7">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -97,16 +97,8 @@
   .detail-title { font-weight: 700; font-size: 15px; }
   .detail-sub { font-size: 12px; color: var(--muted); }
   .detail-total { display: flex; justify-content: space-between; align-items: center; background: #eef2fa; border-radius: 8px; padding: 10px 12px; margin: 8px 0 10px; font-size: 13px; font-weight: 700; }
-  .searchbox { width: 100%; margin-bottom: 8px; }
-  /* Tap-to-open search (2026-08-06). 44px touch target, per the mobile rule. */
-  .detail-searchrow { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-  .detail-searchrow .searchbox { margin-bottom: 0; }
-  .search-toggle {
-    flex: 0 0 auto; width: 44px; height: 44px; display: inline-grid; place-items: center;
-    border: 1px solid #ccd5e2; background: #fff; border-radius: 10px; color: #1F3864; padding: 0;
-  }
-  .search-toggle svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-  .search-toggle.is-open { background: #eef2fa; border-color: #1F3864; }
+  /* The tap-to-open search was removed on 2026-08-13 (user decision 4): the
+     category pills below already do the job on a screen this small. */
   .ex-chip .ct { display: inline-block; margin-left: 5px; background: var(--amber-bg); color: var(--amber); border-radius: 999px; padding: 0 6px; font-weight: 700; font-size: 11px; }
   .chip.on .ex-chip .ct, .chip.on.ex-chip .ct { background: #fff; color: var(--navy); }
   .exrow { display: flex; align-items: flex-start; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--line); }
@@ -117,6 +109,19 @@
   .warn-ico { color: var(--amber); flex: none; }
   .ndf-pill { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--green-bg); color: var(--green); }
   .show-more-btn { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--navy); font-weight: 700; font-size: 13px; }
+  /* Add from Unfiled, inside a report (2026-08-13, item 11). 44px tall so it
+     meets the touch-target floor, and it hides itself entirely when this phone
+     has nothing unfiled, so it is never a permanently dead control. */
+  .add-unfiled-btn { width: 100%; min-height: 44px; padding: 11px 12px; margin: 10px 0 0; border: 1px dashed #c7d3e3; border-radius: 8px; background: #fafbfd; color: var(--navy); font-weight: 700; font-size: 14px; }
+  .add-unfiled-btn.is-open { background: #eef2fa; border-style: solid; border-color: var(--navy); }
+  .unfiled-picker { border: 1px solid var(--line); border-radius: 8px; background: #fff; margin-top: 8px; overflow: hidden; }
+  .unfiled-pick { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 11px 12px; border: 0; border-bottom: 1px solid var(--line); background: #fff; text-align: left; font-size: 14px; color: #182235; }
+  .unfiled-pick:last-child { border-bottom: 0; }
+  .unfiled-pick:active { background: #edf3fb; }
+  .unfiled-pick .up-main { min-width: 0; }
+  .unfiled-pick .up-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .unfiled-pick .up-amt { flex: none; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .unfiled-picker .hint { padding: 11px 12px; margin: 0; }
   /* A line this phone filed but the PC has not confirmed yet. It counts and it
      is visible immediately (2026-08-12 ruling: waiting 30 minutes to see your
      own action is unacceptable), and it says plainly that it is not confirmed
@@ -134,7 +139,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="app-version">v1.6</span></header>
+<header><h1>Expense Hub</h1><span class="app-version">v1.7</span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -237,18 +242,16 @@
           <div class="detail-sub" id="report-detail-sub"></div>
         </div>
       </div>
-      <!-- Count and total sit ABOVE the search, and the search is a magnifier
-           you tap rather than a permanently open box (2026-08-06, user's
-           item 1). The two numbers are what the screen is for; the search is
-           occasional. -->
+      <!-- The count and total are what this screen is for. The search that used
+           to sit under them was removed on 2026-08-13 (user decision 4): the
+           category pills below already narrow the list. -->
       <div class="detail-total" id="report-detail-total"></div>
-      <div class="detail-searchrow">
-        <button type="button" class="search-toggle" id="report-detail-search-toggle" aria-label="Search this report" title="Search this report">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><line x1="16.5" y1="16.5" x2="21" y2="21"></line></svg>
-        </button>
-        <input id="report-detail-search" class="searchbox hidden" type="text" placeholder="Search this report">
-      </div>
       <div class="chiprow" id="report-detail-chips"></div>
+      <!-- File one of this phone's own unfiled captures straight into the
+           report being looked at, instead of leaving for the Unfiled tab and
+           coming back (2026-08-13, item 11). -->
+      <button type="button" class="add-unfiled-btn hidden" id="report-detail-add-unfiled"></button>
+      <div class="unfiled-picker hidden" id="report-detail-unfiled-list"></div>
       <div id="report-detail-lines"></div>
       <button type="button" class="show-more-btn hidden" id="report-detail-more">Show 25 more</button>
       <p class="hint" id="report-detail-footer"></p>
@@ -302,6 +305,9 @@ const CARDS_KEY = 'eh_mobile_cards';
 const PROFILE_KEY = 'eh_mobile_profile';
 const REPORTS_CACHE_KEY = 'eh_mobile_reports_cache';
 const EXPENSES_CACHE_KEY = 'eh_mobile_expenses_cache';
+// Where the user was, so a refresh comes back to it (see activateTab).
+const TAB_KEY = 'eh_mobile_active_tab';
+const OPEN_REPORT_KEY = 'eh_mobile_open_report';
 const DETAIL_PAGE_SIZE = 25;
 const DEFAULT_CARDS = ['Pro card', 'Perso card', 'Cash'];
 // Medical added 2026-08-02: one shared yearly report both profiles can file
@@ -465,17 +471,45 @@ document.getElementById('card-save').addEventListener('click', () => {
   selectPaidChip(label);
 });
 
+// Pull-to-refresh on a phone browser is a plain page reload, and this page's
+// markup hardcodes Add expense as the active tab, so every refresh threw the
+// user back to Add expense whatever screen they were reading (2026-08-13,
+// item 10). There is no custom pull handler to fix -- the fix is that the page
+// remembers where it was. The chosen tab, and the report open inside it, are
+// written down as they change and restored on load.
+function activateTab(name) {
+  const btn = document.querySelector(`nav button[data-tab="${name}"]`);
+  if (!btn) return;
+  document.querySelectorAll('nav button').forEach((b) => b.classList.remove('active'));
+  document.querySelectorAll('main section').forEach((s) => s.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+  document.getElementById('footer-capture').style.display = name === 'capture' ? 'flex' : 'none';
+  localStorage.setItem(TAB_KEY, name);
+  if (name === 'queue') renderQueue();
+  if (name === 'reports') { renderReports(); fetchReports(); }
+}
+
 document.querySelectorAll('nav button').forEach((btn) => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('nav button').forEach((b) => b.classList.remove('active'));
-    document.querySelectorAll('main section').forEach((s) => s.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
-    document.getElementById('footer-capture').style.display = btn.dataset.tab === 'capture' ? 'flex' : 'none';
-    if (btn.dataset.tab === 'queue') renderQueue();
-    if (btn.dataset.tab === 'reports') { closeReportDetail(); renderReports(); fetchReports(); }
+    // Tapping Reports in the nav is a deliberate "take me back to the list",
+    // so it closes any open report. Restoring after a refresh does not.
+    if (btn.dataset.tab === 'reports') closeReportDetail();
+    activateTab(btn.dataset.tab);
   });
 });
+
+function restoreLastScreen() {
+  const tab = localStorage.getItem(TAB_KEY) || 'capture';
+  const openRef = localStorage.getItem(OPEN_REPORT_KEY) || '';
+  activateTab(tab);
+  if (tab !== 'reports' || !openRef) return;
+  const report = getCachedReports().find((r) => r.reportRef === openRef);
+  // A report that has since been sent is gone from the phone's cache; falling
+  // back to the list is honest, where reopening an empty shell would not be.
+  if (report) openReportDetail(openRef, report);
+  else localStorage.removeItem(OPEN_REPORT_KEY);
+}
 
 function selectDateOffset(offset) {
   const d = new Date();
@@ -494,10 +528,20 @@ document.getElementById('f-date').addEventListener('input', () => {
   document.querySelectorAll('[data-offset]').forEach((b) => b.classList.remove('on'));
 });
 
+// One reader for the queue's photo shape, used by every screen that shows a
+// receipt. A queued photo is { base64, name }; a very old queue entry could be
+// a bare data-URL string. Reading it in two different places in two different
+// ways is what let the report-detail receipt render "[object Object]" while
+// the capture strip beside it was fine.
+function dataUrlOf(shot) {
+  if (typeof shot === 'string') return shot;
+  return (shot && typeof shot.base64 === 'string') ? shot.base64 : '';
+}
+
 function renderAttachStrip() {
   const host = document.getElementById('attach-strip');
-  host.innerHTML = photos.map((p, i) => p.base64.startsWith('data:image')
-    ? `<div class="attach-thumb-wrap"><img class="attach-thumb" src="${p.base64}"><button type="button" class="attach-remove" data-remove="${i}">&times;</button></div>`
+  host.innerHTML = photos.map((p, i) => dataUrlOf(p).startsWith('data:image')
+    ? `<div class="attach-thumb-wrap"><img class="attach-thumb" src="${dataUrlOf(p)}"><button type="button" class="attach-remove" data-remove="${i}">&times;</button></div>`
     : `<div class="attach-thumb-wrap"><div class="attach-thumb" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--muted)">FILE</div><button type="button" class="attach-remove" data-remove="${i}">&times;</button></div>`
   ).join('');
   host.querySelectorAll('[data-remove]').forEach((btn) => {
@@ -850,13 +894,23 @@ function receiptPanelHtml(line) {
   const meta = bits.length ? `<div class="kv">${bits.join(' &middot; ')}</div>` : '';
   if (line.pending) {
     const local = load().find((item) => item.localId === line.localId);
-    const photos = (local && local.photos) || [];
-    if (!photos.length) {
+    const shots = (local && local.photos) || [];
+    if (!shots.length) {
       return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p></div>`;
     }
-    const images = photos
-      .map((src) => `<img src="${escapeHtml(src)}" alt="Receipt">`)
-      .join('');
+    // A queued photo is stored as { base64, name } by the capture screen, not
+    // as a bare data-URL string. Mapping the object straight into src= gave
+    // every receipt src="[object Object]", which is the broken image reported
+    // on 2026-08-13 -- the regression shipped with tap-to-open on 12/08.
+    // dataUrlOf tolerates both shapes so an older queue entry still renders.
+    const images = shots.map((shot) => {
+      const src = dataUrlOf(shot);
+      if (!src) return '<p class="hint">This receipt could not be read from the phone.</p>';
+      if (!src.startsWith('data:image')) {
+        return `<p class="hint">${escapeHtml(shot.name || 'This file')} is attached, but it is not an image so it cannot be shown here.</p>`;
+      }
+      return `<img src="${escapeHtml(src)}" alt="Receipt">`;
+    }).join('');
     return `<div class="exdetail">${meta}${images}</div>`;
   }
   if (!line.hasReceipt) {
@@ -871,11 +925,8 @@ function openReportDetail(reportRef, report) {
   openDetailLine = '';
   currentDetailChip = 'all';
   currentDetailShown = DETAIL_PAGE_SIZE;
-  document.getElementById('report-detail-search').value = '';
-  // Opening a report starts with the search closed again, or the magnifier
-  // would sit in its open state over an empty box from the last report.
-  document.getElementById('report-detail-search').classList.add('hidden');
-  document.getElementById('report-detail-search-toggle').classList.remove('is-open');
+  unfiledPickerOpen = false;
+  localStorage.setItem(OPEN_REPORT_KEY, reportRef || '');
   document.getElementById('reports-list-view').classList.add('hidden');
   document.getElementById('report-detail-view').classList.remove('hidden');
   renderReportDetail();
@@ -884,25 +935,87 @@ function openReportDetail(reportRef, report) {
 function closeReportDetail() {
   currentDetailReportRef = '';
   currentDetailReport = null;
+  unfiledPickerOpen = false;
+  localStorage.removeItem(OPEN_REPORT_KEY);
   document.getElementById('report-detail-view').classList.add('hidden');
   document.getElementById('reports-list-view').classList.remove('hidden');
 }
 
 document.getElementById('report-detail-back').addEventListener('click', closeReportDetail);
-document.getElementById('report-detail-search').addEventListener('input', () => { currentDetailShown = DETAIL_PAGE_SIZE; renderReportDetail(); });
-// Tapping the magnifier opens the box and focuses it; tapping again closes it
-// and clears the query, so the list never stays filtered by a search the user
-// can no longer see (2026-08-06).
-document.getElementById('report-detail-search-toggle').addEventListener('click', () => {
-  const box = document.getElementById('report-detail-search');
-  const toggle = document.getElementById('report-detail-search-toggle');
-  const opening = box.classList.contains('hidden');
-  box.classList.toggle('hidden', !opening);
-  toggle.classList.toggle('is-open', opening);
-  if (opening) { box.focus(); return; }
-  if (box.value) { box.value = ''; currentDetailShown = DETAIL_PAGE_SIZE; renderReportDetail(); }
-});
 document.getElementById('report-detail-more').addEventListener('click', () => { currentDetailShown += DETAIL_PAGE_SIZE; renderReportDetail(); });
+
+// ---- Add from Unfiled, without leaving the report (2026-08-13, item 11) ----
+// The only unfiled expenses this phone actually holds are its own captures with
+// no reportRef: mobile_push.py pushes down the lines already inside an open
+// report and nothing else, so a PC-side unfiled expense never reaches the phone
+// at all. Filing one here writes the report onto the queued capture and marks it
+// unsynced again, which is exactly what saving an edit on the capture screen
+// already does -- the PC's mobile_pull then sees a changed fingerprint for that
+// localId and moves the expense. One mechanism, not a second one.
+let unfiledPickerOpen = false;
+
+function unfiledCaptures() {
+  return load().filter((item) => !item.reportRef);
+}
+
+function fileCaptureIntoCurrentReport(localId) {
+  const list = load();
+  const item = list.find((entry) => entry.localId === localId);
+  if (!item || !currentDetailReport) return;
+  item.reportRef = currentDetailReportRef;
+  item.reportName = currentDetailReport.name || '';
+  item.reportType = FLOW_TO_PHONE_TYPE[currentDetailReport.type] || currentDetailReport.type || '';
+  item.synced = false;
+  try {
+    save(list);
+  } catch (e) {
+    showToast("Couldn't save that on this phone (storage full). Nothing was changed.");
+    return;
+  }
+  unfiledPickerOpen = false;
+  showToast('Added to ' + (currentDetailReport.name || 'this report') + '. It syncs to the PC on the next sync.');
+  updateSyncStrip();
+  renderReportDetail();
+  attemptSync();
+}
+
+document.getElementById('report-detail-add-unfiled').addEventListener('click', () => {
+  unfiledPickerOpen = !unfiledPickerOpen;
+  renderReportDetail();
+});
+
+function renderUnfiledPicker() {
+  const button = document.getElementById('report-detail-add-unfiled');
+  const host = document.getElementById('report-detail-unfiled-list');
+  const available = unfiledCaptures();
+  // No unfiled captures means no role for the control, so it does not sit there
+  // at all (design rule 10.2: no role, not on screen).
+  if (!available.length) {
+    button.classList.add('hidden');
+    host.classList.add('hidden');
+    unfiledPickerOpen = false;
+    return;
+  }
+  button.classList.remove('hidden');
+  button.classList.toggle('is-open', unfiledPickerOpen);
+  button.textContent = unfiledPickerOpen
+    ? 'Close'
+    : `Add from Unfiled (${available.length})`;
+  host.classList.toggle('hidden', !unfiledPickerOpen);
+  if (!unfiledPickerOpen) return;
+  host.innerHTML = available.slice().reverse().map((item) => `
+    <button type="button" class="unfiled-pick" data-file="${escapeHtml(item.localId)}">
+      <span class="up-main">
+        <span>${escapeHtml(item.description || item.category || 'Expense')}</span>
+        <span class="up-meta">${ddmmyyyy(item.date)}${item.category ? ' &middot; ' + escapeHtml(item.category) : ''}</span>
+      </span>
+      <span class="up-amt">${Number(item.amount || 0).toFixed(2)} ${escapeHtml(item.currency || '')}</span>
+    </button>
+  `).join('');
+  host.querySelectorAll('[data-file]').forEach((row) => {
+    row.addEventListener('click', () => fileCaptureIntoCurrentReport(row.dataset.file));
+  });
+}
 
 // Two sources, deliberately merged (2026-08-12). The PC's own lines arrive in
 // PCExpenses, which only refreshes after a full round trip: phone pushes the
@@ -971,7 +1084,6 @@ function ddmmyyyy(dateStr) {
 
 function renderReportDetail() {
   const all = detailLinesForReport();
-  const query = document.getElementById('report-detail-search').value.trim().toLowerCase();
   const needsAttentionCount = all.filter((x) => !x.hasReceipt).length;
   const categories = [...new Set(all.map((x) => x.category).filter(Boolean))].sort();
 
@@ -988,14 +1100,11 @@ function renderReportDetail() {
     btn.addEventListener('click', () => { currentDetailChip = btn.dataset.chip; currentDetailShown = DETAIL_PAGE_SIZE; renderReportDetail(); });
   });
 
+  renderUnfiledPicker();
+
   let filtered = all.slice();
   if (currentDetailChip === 'attention') filtered = filtered.filter((x) => !x.hasReceipt);
   else if (currentDetailChip.startsWith('cat:')) filtered = filtered.filter((x) => x.category === currentDetailChip.slice(4));
-  if (query) {
-    filtered = filtered.filter((x) =>
-      (x.category || '').toLowerCase().includes(query) || (x.description || '').toLowerCase().includes(query)
-    );
-  }
   filtered.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
   const total = filtered.reduce((sum, x) => sum + (Number(x.amount) || 0), 0);
@@ -1081,6 +1190,7 @@ renderPaidChips();
 clearForm();
 updateSyncStrip();
 renderReports();
+restoreLastScreen();
 attemptSync();
 fetchReports();
 </script>
