@@ -181,7 +181,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="app-version">v2.1</span></header>
+<header><h1>Expense Hub</h1><span class="app-version">v2.2</span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -363,6 +363,7 @@ const CARDS_KEY = 'eh_mobile_cards';
 const PROFILE_KEY = 'eh_mobile_profile';
 const REPORTS_CACHE_KEY = 'eh_mobile_reports_cache';
 const EXPENSES_CACHE_KEY = 'eh_mobile_expenses_cache';
+const PENDING_REPORTS_KEY = 'eh_mobile_pending_reports';
 // Where the user was, so a refresh comes back to it (see activateTab).
 const TAB_KEY = 'eh_mobile_active_tab';
 const OPEN_REPORT_KEY = 'eh_mobile_open_report';
@@ -796,7 +797,8 @@ function saveCapture(opts) {
     description: document.getElementById('f-description').value,
     paidWith: paidWith,
     photos: photos,
-    synced: false
+    synced: false,
+    awaitingPcUpdate: false
   };
   if (isEdit) {
     const idx = list.findIndex((i) => i.localId === editingLocalId);
@@ -810,6 +812,7 @@ function saveCapture(opts) {
     showToast("Couldn't save that expense on this phone (storage full). Nothing was lost from the form -- try removing a photo or freeing up space.");
     return false;
   }
+  rememberLocalReport(item);
   if (paidWith) localStorage.setItem(LAST_PAID_KEY, paidWith);
   clearForm();
   updateSyncStrip();
@@ -828,22 +831,37 @@ function openForEdit(localId) {
   const list = load();
   const item = list.find((i) => i.localId === localId);
   if (!item) return;
+  // The phone capture is only the local draft. Once the PC has a matching
+  // line, the PC copy is authoritative for the edit form too, not only for
+  // the report view. Keep a just-saved local edit visible until PCExpenses
+  // catches up, otherwise the form jumps back to the previous PC snapshot.
+  const pc = matchingPcLine(item);
+  const source = pc && !item.awaitingPcUpdate
+    ? Object.assign({}, item, {
+      date: pc.date ?? item.date,
+      category: pc.category ?? item.category,
+      amount: pc.amount ?? item.amount,
+      currency: pc.currency ?? item.currency,
+      description: pc.description ?? item.description,
+      paidWith: pc.paidWith ?? item.paidWith,
+    })
+    : item;
   clearForm();
   editingLocalId = localId;
   document.getElementById('edit-banner').style.display = 'block';
   document.getElementById('edit-banner').textContent = item.synced
     ? 'Editing an already-synced expense. Saving will update it.'
     : 'Editing a not-yet-synced expense.';
-  document.getElementById('f-report-type').value = item.reportType || '';
-  document.getElementById('f-report-name').value = item.reportName || '';
-  selectedReportRef = item.reportRef || '';
-  setExpenseDate(item.date || '');
+  document.getElementById('f-report-type').value = source.reportType || '';
+  document.getElementById('f-report-name').value = source.reportName || '';
+  selectedReportRef = source.reportRef || '';
+  setExpenseDate(source.date || '');
   document.querySelectorAll('[data-offset]').forEach((b) => b.classList.remove('on'));
-  document.getElementById('f-category').value = item.category || '';
-  document.getElementById('f-amount').value = item.amount || '';
-  document.getElementById('f-currency').value = item.currency || 'EUR';
-  document.getElementById('f-description').value = item.description || '';
-  selectPaidChip(item.paidWith || '');
+  document.getElementById('f-category').value = source.category || '';
+  document.getElementById('f-amount').value = source.amount || '';
+  document.getElementById('f-currency').value = source.currency || 'EUR';
+  document.getElementById('f-description').value = source.description || '';
+  selectPaidChip(source.paidWith || '');
   photos = (item.photos || []).slice();
   renderAttachStrip();
   document.querySelector('nav button[data-tab="capture"]').click();
@@ -904,6 +922,7 @@ function queueRowsToShow() {
 // separate step to pull a capture in, so the two waits are named separately.
 function queueState(item) {
   if (!item.synced) return { key: 'pending', label: 'On this phone only' };
+  if (item.awaitingPcUpdate) return { key: 'waiting', label: 'Waiting for PC' };
   if (matchingPcLine(item)) {
     return { key: 'synced', label: 'On the PC' };
   }
@@ -923,6 +942,11 @@ function matchingPcLine(item) {
 function syncDisplayValues(item) {
   const pc = matchingPcLine(item);
   if (!pc) return item;
+  // A successful phone-to-Sheet push can be visible there before the PC has
+  // pulled the change and rewritten PCExpenses. During that short window the
+  // local edit is the newest value, so do not paint the older PC snapshot over
+  // it on the Sync tab.
+  if (item.awaitingPcUpdate) return item;
   return Object.assign({}, item, {
     amount: pc.amount ?? item.amount,
     category: pc.category ?? item.category,
@@ -934,16 +958,36 @@ function renderQueue() {
   const list = queueRowsToShow();
   const host = document.getElementById('queue-list');
   if (!list.length) { host.innerHTML = '<p class="hint">Nothing waiting. Everything this phone captured is on the PC.</p>'; return; }
-  host.innerHTML = list.slice().reverse().map((item) => {
+  const reports = getCachedReports();
+  const groupLabel = (item) => {
+    const report = reports.find((r) => r.reportRef && r.reportRef === item.reportRef);
+    const type = String(item.reportType || (report && report.type) || 'No type').trim();
+    const name = String(item.reportName || (report && report.name) || 'No report').trim();
+    return `${type} · ${name}`;
+  };
+  const ordered = list.slice().sort((a, b) =>
+    groupLabel(a).localeCompare(groupLabel(b))
+      || String(b.date || '').localeCompare(String(a.date || ''))
+      || String(b.localId || '').localeCompare(String(a.localId || ''))
+  );
+  let lastGroup = '';
+  let html = '';
+  ordered.forEach((item) => {
     const state = queueState(item);
     const display = syncDisplayValues(item);
     const description = display.description ? ' · ' + escapeHtml(display.description) : '';
-    return `
+    const group = groupLabel(item);
+    if (group !== lastGroup) {
+      html += `<div class="band">${escapeHtml(group)}</div>`;
+      lastGroup = group;
+    }
+    html += `
     <div class="qrow" data-open="${escapeHtml(item.localId)}" style="cursor:pointer">
       <div>${ddmmyyyy(display.date)} &middot; ${escapeHtml(display.category || 'No category')}${description} &middot; ${escapeHtml(String(display.amount ?? '0'))} ${escapeHtml(display.currency || '')}${item.sentWarning ? '<div class="hint">This report was sent on the PC. The capture stays here for 30 days.</div>' : ''}</div>
       <span class="status ${state.key}">${state.label}</span>
     </div>`;
-  }).join('');
+  });
+  host.innerHTML = html;
   host.querySelectorAll('[data-open]').forEach((row) => {
     row.addEventListener('click', () => openForEdit(row.dataset.open));
   });
@@ -1001,7 +1045,11 @@ async function attemptSync(userAsked) {
         const payload = Object.assign({}, item, { code: getSyncCode() });
         const res = await fetch(url, { method: 'POST', body: JSON.stringify(payload) });
         const json = await res.json();
-        if (json.ok) { item.synced = true; sent += 1; } else { failed = true; break; }
+        if (json.ok) {
+          item.synced = true;
+          item.awaitingPcUpdate = true;
+          sent += 1;
+        } else { failed = true; break; }
       } catch (e) { failed = true; break; }
     }
     if (sent) save(list);
@@ -1024,7 +1072,33 @@ async function attemptSync(userAsked) {
 
 // ---- Reports: the PC's real report list, synced via PCReports -----------
 function getCachedReports() {
-  try { return JSON.parse(localStorage.getItem(REPORTS_CACHE_KEY) || '[]'); } catch (e) { return []; }
+  let remote = [];
+  let pending = [];
+  try { remote = JSON.parse(localStorage.getItem(REPORTS_CACHE_KEY) || '[]'); } catch (e) { remote = []; }
+  try { pending = JSON.parse(localStorage.getItem(PENDING_REPORTS_KEY) || '[]'); } catch (e) { pending = []; }
+  const remoteKeys = new Set(remote.map((r) => `${r.type || ''}\u0000${String(r.name || '').trim().toLowerCase()}`));
+  return remote.concat(pending.filter((r) => !remoteKeys.has(`${r.type || ''}\u0000${String(r.name || '').trim().toLowerCase()}`)));
+}
+
+function rememberLocalReport(item) {
+  const flow = PHONE_TYPE_TO_FLOW[item.reportType] || item.reportType;
+  const name = String(item.reportName || '').trim();
+  if (!flow || !name) return;
+  let pending = [];
+  try { pending = JSON.parse(localStorage.getItem(PENDING_REPORTS_KEY) || '[]'); } catch (e) { pending = []; }
+  const key = `${flow}\u0000${name.toLowerCase()}`;
+  if (pending.some((r) => `${r.type || ''}\u0000${String(r.name || '').trim().toLowerCase()}` === key)) return;
+  pending.push({ type: flow, name, status: 'Waiting for PC', reportRef: '', localOnly: true });
+  localStorage.setItem(PENDING_REPORTS_KEY, JSON.stringify(pending));
+}
+
+function reconcileLocalReports(remote) {
+  let pending = [];
+  try { pending = JSON.parse(localStorage.getItem(PENDING_REPORTS_KEY) || '[]'); } catch (e) { pending = []; }
+  const remoteKeys = new Set((remote || []).map((r) => `${r.type || ''}\u0000${String(r.name || '').trim().toLowerCase()}`));
+  localStorage.setItem(PENDING_REPORTS_KEY, JSON.stringify(
+    pending.filter((r) => !remoteKeys.has(`${r.type || ''}\u0000${String(r.name || '').trim().toLowerCase()}`))
+  ));
 }
 
 // ---- Expense lines inside each Draft report, synced via PCExpenses ------
@@ -1043,6 +1117,7 @@ async function fetchReports() {
     const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'action=reports' + codePart);
     const json = await res.json();
     if (json.ok) {
+      reconcileLocalReports(json.reports || []);
       localStorage.setItem(REPORTS_CACHE_KEY, JSON.stringify(json.reports || []));
       renderReports();
       pruneQueueForSentReports();
@@ -1060,12 +1135,27 @@ async function fetchReports() {
         const pc = expenses.find((line) => line.localId && line.localId === item.localId)
           || expenses.find((line) => pendingKey(line.date, line.amount, line.category) === pendingKey(item.date, item.amount, item.category));
         if (pc && pc.pcTakenAt && !item.pcTakenAt) { item.pcTakenAt = pc.pcTakenAt; changed = true; }
+        if (pc && item.awaitingPcUpdate && pcLineMatchesLocal(item, pc)) {
+          item.awaitingPcUpdate = false;
+          changed = true;
+        }
       });
       if (changed) save(queue);
       if (currentDetailReportRef) renderReportDetail();
       pruneQueueForSentReports();
     }
   } catch (e) { /* same as above -- detail screen just stays on last cache */ }
+}
+
+function amountKey(value) {
+  const number = Number(String(value ?? '').replace(',', '.'));
+  return Number.isFinite(number) ? number.toFixed(2) : String(value ?? '').trim();
+}
+
+function pcLineMatchesLocal(item, pc) {
+  return amountKey(pc.amount) === amountKey(item.amount)
+    && String(pc.category ?? '').trim() === String(item.category ?? '').trim()
+    && String(pc.description ?? '').trim() === String(item.description ?? '').trim();
 }
 
 // Maps a PC flow code back to the phone's own type label where one exists
@@ -1103,7 +1193,8 @@ function renderReports() {
     html += `<div class="band">${FLOW_TO_PHONE_TYPE[flow] || flow}</div>`;
     rows.forEach((r) => {
       const statusClass = 'status-' + String(r.status || '').toLowerCase();
-      html += `<div class="report-row" data-open-report="${r.reportRef}" style="cursor:pointer"><div>${r.name || '(unnamed)'}</div>${r.status ? `<span class="status-pill ${statusClass}">${r.status}</span>` : ''}</div>`;
+      const openAttrs = r.reportRef ? `data-open-report="${r.reportRef}" style="cursor:pointer"` : '';
+      html += `<div class="report-row" ${openAttrs}><div>${r.name || '(unnamed)'}</div>${r.status ? `<span class="status-pill ${statusClass}">${r.status}</span>` : ''}</div>`;
     });
   });
   host.innerHTML = html || '<p class="hint">No reports from the PC yet. Check back after the next 30-minute sync.</p>';

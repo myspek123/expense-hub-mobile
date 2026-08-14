@@ -29,9 +29,9 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 def test_mobile_release_and_cache_version_are_bumped():
     assert 'content="2.1"' in HTML
-    assert '>v2.1</span>' in HTML
+    assert '>v2.2</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v10" in service_worker
+    assert "eh-mobile-v11" in service_worker
 
 
 # -- 2026-08-02: Medical on both profiles, Queue renamed Unfiled, report
@@ -279,6 +279,8 @@ def test_sync_tab_shows_pc_values_for_a_local_id_match():
     assert "display.description" in queue
     assert "display.amount" in queue
     assert "When a line is on the PC, this tab shows the PC's amount, category and description." in HTML
+    assert "if (item.awaitingPcUpdate) return item;" in HTML
+    assert "item.awaitingPcUpdate = true;" in HTML
 
 
 def test_corrected_pc_line_keeps_the_phone_receipt_by_local_id():
@@ -293,3 +295,30 @@ def test_corrected_pc_line_keeps_the_phone_receipt_by_local_id():
     panel = panel[: panel.index("function openReportDetail")]
     assert "if (line.hasReceipt)" in panel
     assert "This receipt is stored on the PC. Open the expense in Expense Hub to view it." in panel
+
+
+def test_pc_corrected_values_are_used_by_the_edit_form():
+    edit = HTML[HTML.index("function openForEdit(localId)"):]
+    edit = edit[: edit.index("// 2026-08-02 ruling")]
+    assert "const pc = matchingPcLine(item);" in edit
+    assert "const source = pc && !item.awaitingPcUpdate" in edit
+    assert "amount: pc.amount ?? item.amount" in edit
+    assert "document.getElementById('f-amount').value = source.amount || '';" in edit
+
+
+def test_sync_rows_are_grouped_by_report_type_and_name():
+    queue = HTML[HTML.index("function renderQueue()"):]
+    queue = queue[: queue.index("function updateSyncStrip")]
+    assert "const groupLabel = (item)" in queue
+    assert "const type = String(item.reportType" in queue
+    assert "return `${type}" in queue
+    assert "ordered = list.slice().sort" in queue
+    assert "html += `<div class=\"band\">${escapeHtml(group)}</div>`" in queue
+
+
+def test_phone_typed_report_is_visible_while_the_pc_creates_it():
+    assert "const PENDING_REPORTS_KEY = 'eh_mobile_pending_reports';" in HTML
+    assert "function rememberLocalReport(item)" in HTML
+    assert "status: 'Waiting for PC'" in HTML
+    assert "function reconcileLocalReports(remote)" in HTML
+    assert "const openAttrs = r.reportRef ?" in HTML
