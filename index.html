@@ -165,7 +165,10 @@
   .exrow { cursor: pointer; }
   .exdetail { padding: 4px 0 12px; border-bottom: 1px solid var(--line); }
   .exdetail .kv { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
-  .exdetail img { width: 100%; border-radius: 8px; border: 1px solid var(--line); display: block; }
+  .exdetail img { width: 100%; max-height: 72vh; object-fit: contain; border-radius: 8px; border: 1px solid var(--line); display: block; cursor: zoom-in; background: #f7f8fa; }
+  .receipt-lightbox { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(15, 24, 38, .88); }
+  .receipt-lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; }
+  .receipt-lightbox button { position: absolute; top: 12px; right: 14px; border: 0; background: #fff; color: var(--navy); border-radius: 50%; width: 36px; height: 36px; font-size: 24px; line-height: 1; }
   .exdetail .hint { font-size: 12px; }
   /* Edit, inside the opened line. 44px so it meets the touch floor, and 14px
      because it is a control the user reads. */
@@ -756,8 +759,16 @@ function clearForm() {
 function validateCapture() {
   const type = document.getElementById('f-report-type').value;
   const field = document.getElementById('report-field');
+  const amount = document.getElementById('f-amount').value.trim();
+  const amountField = document.getElementById('f-amount');
+  const attach = document.getElementById('attach-strip');
+  const errors = [];
   field.classList.toggle('bad', !type);
-  if (!type) { showToast('Choose a report type before saving.'); return false; }
+  amountField.classList.toggle('bad', !amount && !photos.length);
+  attach.classList.toggle('bad', !amount && !photos.length);
+  if (!type) errors.push('Choose a report type.');
+  if (!amount && !photos.length) errors.push('Add an amount or a receipt photo.');
+  if (errors.length) { showToast(errors.join(' ')); return false; }
   return true;
 }
 
@@ -861,30 +872,29 @@ function openForEdit(localId) {
 //      with no report stays until it gets one, which is the point of it.
 function pruneQueueForSentReports() {
   const cachedRefs = new Set(getCachedReports().map((r) => r.reportRef).filter(Boolean));
+  const cachedExpenses = getCachedExpenses();
   const list = load();
-  // Only a capture whose report has left the PC's list is actually thrown
-  // away. Everything else is KEPT in storage, because the capture carries the
-  // photo taken on this phone and is the only thing that makes the expense
-  // openable and editable here. An earlier version of this deleted a capture
-  // as soon as the PC confirmed it, which is what took the user's own expenses
-  // away from him minutes after he made them (13/08/2026).
-  const kept = list.filter((item) => {
-    if (!item.synced) return true;
-    if (item.reportRef) return cachedRefs.has(item.reportRef);
-    return true;
+  // A capture stays visible until the PC has taken it, then remains for 30
+  // days. After that it is marked expired rather than erased, so the phone
+  // never loses a receipt irreversibly.
+  list.forEach((item) => {
+    if (!item.synced) return;
+    const pc = cachedExpenses.find((line) => line.localId && line.localId === item.localId)
+      || cachedExpenses.find((line) => pendingKey(line.date, line.amount, line.category) === pendingKey(item.date, item.amount, item.category));
+    if (pc && pc.pcTakenAt && !item.pcTakenAt) item.pcTakenAt = pc.pcTakenAt;
+    const taken = Date.parse(item.pcTakenAt || '');
+    item.expired = Number.isFinite(taken) && Date.now() - taken >= 30 * 24 * 60 * 60 * 1000;
+    if (item.reportRef && !cachedRefs.has(item.reportRef) && !item.expired) item.sentWarning = true;
   });
-  if (kept.length !== list.length) save(kept);
-  return kept;
+  save(list);
+  return list;
 }
 
 // What the Sync tab SHOWS, which is a different question from what is stored.
 // The user's rule: a capture the PC already holds in a report is finished with
 // and should not sit in the sync list. It stays in storage all the same.
 function queueRowsToShow() {
-  const pcKeys = new Set(getCachedExpenses().map((x) => pendingKey(x.date, x.amount, x.category)));
-  return pruneQueueForSentReports().filter(
-    (item) => !(item.synced && pcKeys.has(pendingKey(item.date, item.amount, item.category)))
-  );
+  return pruneQueueForSentReports().filter((item) => !item.expired);
 }
 
 // Three states, not two. "Synced" used to mean only "the Sheet has it", which
@@ -893,10 +903,12 @@ function queueRowsToShow() {
 // separate step to pull a capture in, so the two waits are named separately.
 function queueState(item) {
   if (!item.synced) return { key: 'pending', label: 'On this phone only' };
-  const pcKeys = new Set(getCachedExpenses().map((x) => pendingKey(x.date, x.amount, x.category)));
-  if (pcKeys.has(pendingKey(item.date, item.amount, item.category))) {
+  const pcLines = getCachedExpenses();
+  if (pcLines.some((x) => (x.localId && x.localId === item.localId)
+    || pendingKey(x.date, x.amount, x.category) === pendingKey(item.date, item.amount, item.category))) {
     return { key: 'synced', label: 'On the PC' };
   }
+  if (item.sentWarning) return { key: 'waiting', label: 'Report sent on PC' };
   return { key: 'waiting', label: 'Waiting for PC' };
 }
 
@@ -908,7 +920,7 @@ function renderQueue() {
     const state = queueState(item);
     return `
     <div class="qrow" data-open="${escapeHtml(item.localId)}" style="cursor:pointer">
-      <div>${ddmmyyyy(item.date)} &middot; ${escapeHtml(item.category || 'No category')} &middot; ${escapeHtml(String(item.amount || '0'))} ${escapeHtml(item.currency || '')}</div>
+      <div>${ddmmyyyy(item.date)} &middot; ${escapeHtml(item.category || 'No category')} &middot; ${escapeHtml(String(item.amount || '0'))} ${escapeHtml(item.currency || '')}${item.sentWarning ? '<div class="hint">This report was sent on the PC. The capture stays here for 30 days.</div>' : ''}</div>
       <span class="status ${state.key}">${state.label}</span>
     </div>`;
   }).join('');
@@ -996,8 +1008,8 @@ function getCachedReports() {
 }
 
 // ---- Expense lines inside each Draft report, synced via PCExpenses ------
-// Only the last 90 days of a Draft report's lines are ever pushed here (PC
-// side window) -- see expense_hub/mobile_push.py's EXPENSE_WINDOW_DAYS.
+// Every line in an open Draft report is pushed here so the phone view cannot
+// silently omit older expenses.
 function getCachedExpenses() {
   try { return JSON.parse(localStorage.getItem(EXPENSES_CACHE_KEY) || '[]'); } catch (e) { return []; }
 }
@@ -1020,8 +1032,18 @@ async function fetchReports() {
     const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'action=expenses' + codePart);
     const json = await res.json();
     if (json.ok) {
-      localStorage.setItem(EXPENSES_CACHE_KEY, JSON.stringify(json.expenses || []));
+      const expenses = json.expenses || [];
+      localStorage.setItem(EXPENSES_CACHE_KEY, JSON.stringify(expenses));
+      const queue = load();
+      let changed = false;
+      queue.forEach((item) => {
+        const pc = expenses.find((line) => line.localId && line.localId === item.localId)
+          || expenses.find((line) => pendingKey(line.date, line.amount, line.category) === pendingKey(item.date, item.amount, item.category));
+        if (pc && pc.pcTakenAt && !item.pcTakenAt) { item.pcTakenAt = pc.pcTakenAt; changed = true; }
+      });
+      if (changed) save(queue);
       if (currentDetailReportRef) renderReportDetail();
+      pruneQueueForSentReports();
     }
   } catch (e) { /* same as above -- detail screen just stays on last cache */ }
 }
@@ -1124,7 +1146,7 @@ function receiptPanelHtml(line) {
       if (!src.startsWith('data:image')) {
         return `<p class="hint">${escapeHtml(shot.name || 'This file')} is attached, but it is not an image so it cannot be shown here.</p>`;
       }
-      return `<img src="${escapeHtml(src)}" alt="Receipt">`;
+      return `<img class="receipt-preview" src="${escapeHtml(src)}" alt="Receipt">`;
     }).join('');
     return `<div class="exdetail">${meta}${images}${editButton}</div>`;
   }
@@ -1376,6 +1398,19 @@ function renderReportDetail() {
       openForEdit(button.dataset.editLine);
     });
   });
+  document.querySelectorAll('#report-detail-lines .receipt-preview').forEach((image) => {
+    image.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const lightbox = document.createElement('div');
+      lightbox.className = 'receipt-lightbox';
+      lightbox.innerHTML = '<button type="button" aria-label="Close">&times;</button><img alt="Receipt">';
+      lightbox.querySelector('img').src = image.src;
+      lightbox.addEventListener('click', (click) => {
+        if (click.target === lightbox || click.target.tagName === 'BUTTON') lightbox.remove();
+      });
+      document.body.appendChild(lightbox);
+    });
+  });
 
   const moreBtn = document.getElementById('report-detail-more');
   if (filtered.length > shown.length) {
@@ -1386,7 +1421,7 @@ function renderReportDetail() {
   }
 
   document.getElementById('report-detail-footer').textContent = all.length
-    ? `Only the last 90 days of this report are shown here. Older lines are on the PC only.`
+    ? `All lines in this open report are shown here.`
     : '';
 }
 

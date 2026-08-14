@@ -66,21 +66,20 @@ def test_a_capture_the_pc_already_has_leaves_this_phone():
     """
     prune = HTML[HTML.index("function pruneQueueForSentReports") :]
     prune = prune[: prune.index("function queueRowsToShow")]
-    assert "if (!item.synced) return true;" in prune
-    # Only a report gone from the PC's list actually deletes a capture.
-    assert "if (item.reportRef) return cachedRefs.has(item.reportRef);" in prune
-    assert "    return true;\n  });" in prune
+    assert "if (!item.synced) return true;" in prune or "if (!item.synced) return;" in prune
+    # A PC-taken capture remains in the active list for 30 days, then is
+    # marked expired without erasing the phone's receipt.
+    assert "30 * 24 * 60 * 60 * 1000" in prune
+    assert "item.sentWarning = true" in prune
     assert "QUEUE_KEEP_DAYS" not in HTML
     assert "captureAgeDays" not in HTML
 
-    # Showing and storing are two different questions. The Sync tab hides a
-    # capture the PC already holds; storage keeps it, because that capture
-    # carries the phone's own photo and is what makes the expense openable and
-    # editable here. Deleting it took the user's own expenses away from him
-    # minutes after he made them (13/08/2026, his item 3).
+    # Showing and storing are two different questions. The Sync tab retains a
+    # PC-taken capture for the 30-day hand-off window; storage keeps it even
+    # after expiry so the phone never loses its receipt.
     show = HTML[HTML.index("function queueRowsToShow"):]
     show = show[: show.index("function queueState")]
-    assert "pcKeys.has(pendingKey(item.date, item.amount, item.category))" in show
+    assert "!item.expired" in show
     assert "pruneQueueForSentReports()" in show
     assert "function renderQueue() {\n  const list = queueRowsToShow();" in HTML
 
@@ -171,7 +170,7 @@ def test_report_detail_view_exists_with_filters_and_pagination():
     assert 'id="report-detail-chips"' in HTML
     assert 'id="report-detail-more"' in HTML
     assert "DETAIL_PAGE_SIZE = 25" in HTML
-    assert "Only the last 90 days of this report are shown here" in HTML
+    assert "All lines in this open report are shown here" in HTML
 
 
 # -- 2026-08-13 night run ---------------------------------------------------
