@@ -317,6 +317,7 @@
          over: this list holds captures that ARE in a report as well, and it
          never described what actually drops off it. It is the sync queue. -->
     <p class="hint">Everything this phone captured, and where it has got to. Tap one to view or edit it. Nothing is lost if the phone loses signal. A line stays here until the PC has it in a report. A capture with no report yet stays for as long as it takes, so nothing is ever quietly dropped.</p>
+    <p class="hint">When a line is on the PC, this tab shows the PC's amount, category and description.</p>
     <div id="queue-list"></div>
   </section>
 
@@ -903,13 +904,30 @@ function queueRowsToShow() {
 // separate step to pull a capture in, so the two waits are named separately.
 function queueState(item) {
   if (!item.synced) return { key: 'pending', label: 'On this phone only' };
-  const pcLines = getCachedExpenses();
-  if (pcLines.some((x) => (x.localId && x.localId === item.localId)
-    || pendingKey(x.date, x.amount, x.category) === pendingKey(item.date, item.amount, item.category))) {
+  if (matchingPcLine(item)) {
     return { key: 'synced', label: 'On the PC' };
   }
   if (item.sentWarning) return { key: 'waiting', label: 'Report sent on PC' };
   return { key: 'waiting', label: 'Waiting for PC' };
+}
+
+function matchingPcLine(item) {
+  const pcLines = getCachedExpenses();
+  if (!item) return null;
+  return pcLines.find((line) => item.localId && line.localId && line.localId === item.localId)
+    || pcLines.find((line) => pendingKey(line.date, line.amount, line.category)
+      === pendingKey(item.date, item.amount, item.category))
+    || null;
+}
+
+function syncDisplayValues(item) {
+  const pc = matchingPcLine(item);
+  if (!pc) return item;
+  return Object.assign({}, item, {
+    amount: pc.amount ?? item.amount,
+    category: pc.category ?? item.category,
+    description: pc.description ?? item.description,
+  });
 }
 
 function renderQueue() {
@@ -918,9 +936,11 @@ function renderQueue() {
   if (!list.length) { host.innerHTML = '<p class="hint">Nothing waiting. Everything this phone captured is on the PC.</p>'; return; }
   host.innerHTML = list.slice().reverse().map((item) => {
     const state = queueState(item);
+    const display = syncDisplayValues(item);
+    const description = display.description ? ' · ' + escapeHtml(display.description) : '';
     return `
     <div class="qrow" data-open="${escapeHtml(item.localId)}" style="cursor:pointer">
-      <div>${ddmmyyyy(item.date)} &middot; ${escapeHtml(item.category || 'No category')} &middot; ${escapeHtml(String(item.amount || '0'))} ${escapeHtml(item.currency || '')}${item.sentWarning ? '<div class="hint">This report was sent on the PC. The capture stays here for 30 days.</div>' : ''}</div>
+      <div>${ddmmyyyy(display.date)} &middot; ${escapeHtml(display.category || 'No category')}${description} &middot; ${escapeHtml(String(display.amount ?? '0'))} ${escapeHtml(display.currency || '')}${item.sentWarning ? '<div class="hint">This report was sent on the PC. The capture stays here for 30 days.</div>' : ''}</div>
       <span class="status ${state.key}">${state.label}</span>
     </div>`;
   }).join('');
@@ -1133,6 +1153,9 @@ function receiptPanelHtml(line) {
   if (local) {
     const shots = local.photos || [];
     if (!shots.length) {
+      if (line.hasReceipt) {
+        return `<div class="exdetail">${meta}<p class="hint">This receipt is stored on the PC. Open the expense in Expense Hub to view it.</p>${editButton}</div>`;
+      }
       return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p>${editButton}</div>`;
     }
     // A queued photo is stored as { base64, name } by the capture screen, not
@@ -1293,12 +1316,14 @@ function localLinesForReport() {
 
 function detailLinesForReport() {
   const pcLines = getCachedExpenses().filter((x) => x.reportRef === currentDetailReportRef);
+  const knownLocalIds = new Set(pcLines.map((x) => x.localId).filter(Boolean));
   const known = new Set(pcLines.map((x) => pendingKey(x.date, x.amount, x.category)));
   // Once the PC has the line, the PC's copy wins: it carries the real exp_id and
   // whatever was changed on the desktop. Matching on date, amount and category
   // because the phone's capture never learns the exp_id it was given.
   const pending = localLinesForReport().filter(
-    (x) => !known.has(pendingKey(x.date, x.amount, x.category))
+    (x) => !knownLocalIds.has(x.localId)
+      && !known.has(pendingKey(x.date, x.amount, x.category))
   );
   return pcLines.concat(pending);
 }

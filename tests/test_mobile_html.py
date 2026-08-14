@@ -266,3 +266,30 @@ def test_a_line_this_phone_captured_can_be_edited_from_inside_the_report():
     # On the opened panel, not the row, so looking at a receipt never starts an
     # edit by accident.
     assert "event.stopPropagation();" in HTML
+
+
+def test_sync_tab_shows_pc_values_for_a_local_id_match():
+    assert "function matchingPcLine(item)" in HTML
+    assert "line.localId === item.localId" in HTML
+    assert "function syncDisplayValues(item)" in HTML
+    queue = HTML[HTML.index("function renderQueue()"):]
+    queue = queue[: queue.index("function updateSyncStrip")]
+    assert "const display = syncDisplayValues(item);" in queue
+    assert "display.category" in queue
+    assert "display.description" in queue
+    assert "display.amount" in queue
+    assert "When a line is on the PC, this tab shows the PC's amount, category and description." in HTML
+
+
+def test_corrected_pc_line_keeps_the_phone_receipt_by_local_id():
+    detail = HTML[HTML.index("function detailLinesForReport()"):]
+    detail = detail[: detail.index("function monthBand")]
+    assert "const knownLocalIds = new Set(pcLines.map((x) => x.localId).filter(Boolean));" in detail
+    assert "!knownLocalIds.has(x.localId)" in detail
+    local_match = HTML[HTML.index("function localCaptureFor(line)"):]
+    local_match = local_match[: local_match.index("function receiptPanelHtml(line)")]
+    assert "if (line.localId) return queue.find((item) => item.localId === line.localId) || null;" in local_match
+    panel = HTML[HTML.index("function receiptPanelHtml(line)"):]
+    panel = panel[: panel.index("function openReportDetail")]
+    assert "if (line.hasReceipt)" in panel
+    assert "This receipt is stored on the PC. Open the expense in Expense Hub to view it." in panel
