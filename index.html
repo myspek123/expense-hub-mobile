@@ -768,7 +768,7 @@ function renderReportNameList() {
   // (mobile_pull.py's own status check), not lost.
   host.innerHTML = matches.map((r) => {
     const suffix = r.status && r.status !== 'Draft' ? ` <span class="combo-item-status">(${r.status})</span>` : '';
-    return `<button type="button" class="combo-item" data-pick="${r.name}" data-ref="${r.reportRef}">${r.name}${suffix}</button>`;
+    return `<button type="button" class="combo-item" data-pick="${escapeHtml(r.name)}" data-ref="${escapeHtml(r.reportRef)}">${escapeHtml(r.name)}${suffix}</button>`;
   }).join('');
   host.classList.remove('hidden');
   host.querySelectorAll('[data-pick]').forEach((btn) => {
@@ -1429,8 +1429,8 @@ function renderReports() {
     html += `<div class="band">${FLOW_TO_PHONE_TYPE[flow] || flow}</div>`;
     rows.forEach((r) => {
       const statusClass = 'status-' + String(r.status || '').toLowerCase();
-      const openAttrs = r.reportRef ? `data-open-report="${r.reportRef}" style="cursor:pointer"` : '';
-      html += `<div class="report-row" ${openAttrs}><div>${r.name || '(unnamed)'}</div>${r.status ? `<span class="status-pill ${statusClass}">${r.status}</span>` : ''}</div>`;
+      const openAttrs = r.reportRef ? `data-open-report="${escapeHtml(r.reportRef)}" style="cursor:pointer"` : '';
+      html += `<div class="report-row" ${openAttrs}><div>${escapeHtml(r.name || '(unnamed)')}</div>${r.status ? `<span class="status-pill ${escapeHtml(statusClass)}">${escapeHtml(r.status)}</span>` : ''}</div>`;
     });
   });
   host.innerHTML = html || '<p class="hint">No reports from the PC yet. Check back after the next 30-minute sync.</p>';
