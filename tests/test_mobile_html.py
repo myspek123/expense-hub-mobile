@@ -28,10 +28,39 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="2.2"' in HTML
-    assert '>v2.2</span>' in HTML
+    assert 'content="2.3"' in HTML
+    assert '>v2.3</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v12" in service_worker
+    assert "eh-mobile-v13" in service_worker
+
+
+# -- 2026-08-15: the Sync list can finally be cleared by hand ---------------
+
+def test_sync_list_can_be_cleared_and_the_two_cases_are_separate():
+    """Clearing what the PC already holds loses nothing; clearing an unsent
+    capture destroys the only copy of its receipt. Two buttons, two warnings,
+    never one button that does both."""
+    assert 'id="queue-actions"' in HTML
+    assert 'id="clear-synced"' in HTML
+    assert 'id="clear-phone-only"' in HTML
+
+    actions = HTML[HTML.index("function renderQueueActions()") :]
+    actions = actions[: actions.index("function renderQueue()")]
+    # the safe button only ever removes captures the PC has
+    assert "removeCaptures((item) => item.synced)" in actions
+    # and the destructive one only ever removes captures it has not
+    assert "removeCaptures((item) => !item.synced)" in actions
+    # both ask first, and the destructive one says the photo goes with it
+    assert actions.count("confirm(") == 2
+    assert "cannot be recovered" in actions
+
+
+def test_clearing_keeps_every_other_capture():
+    remove = HTML[HTML.index("function removeCaptures(predicate)") :]
+    remove = remove[: remove.index("function renderQueueActions()")]
+    # filter out the matches, save the rest -- never a blanket wipe of the store
+    assert "load().filter((item) => !predicate(item))" in remove
+    assert "save(kept)" in remove
 
 
 # -- 2026-08-02: Medical on both profiles, Queue renamed Unfiled, report

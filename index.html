@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="2.2">
+<meta name="application-version" content="2.3">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -99,6 +99,9 @@
   #toast.show { display: block; background: var(--amber-bg); border: 1px solid #e0c07a; color: #7a5200; }
   #toast.show.is-error { background: #fff4f2; border-color: #e9a49e; color: var(--danger); }
   #queue-list { margin-top: 4px; }
+  #queue-actions { display: flex; flex-direction: column; gap: 10px; padding: 14px 0 4px; }
+  #queue-actions:empty { display: none; }
+  .btn.danger { border-color: var(--danger); color: var(--danger); background: #fff; }
   .qrow { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
   .qrow .status { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
   .qrow .status.pending { background: var(--amber-bg); color: var(--amber); }
@@ -193,7 +196,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="app-version">v2.2</span></header>
+<header><h1>Expense Hub</h1><span class="app-version">v2.3</span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -332,6 +335,7 @@
     <p class="hint">Everything this phone captured, and where it has got to. Tap one to view or edit it. Nothing is lost if the phone loses signal. A line stays here until the PC has it in a report. A capture with no report yet stays for as long as it takes, so nothing is ever quietly dropped.</p>
     <p class="hint">When a line is on the PC, this tab shows the PC's amount, category and description.</p>
     <div id="queue-list"></div>
+    <div id="queue-actions"></div>
   </section>
 
   <section id="tab-settings">
@@ -1180,10 +1184,63 @@ function syncDisplayValues(item) {
   });
 }
 
+// Clearing this list by hand, added 2026-08-15. Nothing here ever deleted a
+// capture, which is right as a default -- a capture with no report is a job
+// still to do. But it left no way at all to get rid of rows that are finished
+// with, and after the acceptance round the phone was still showing dozens of
+// practice captures with no way to shift them short of wiping the site data,
+// which also wipes the sync URL, the sync code and the card list.
+//
+// Two separate buttons on purpose, because the two cases are not the same
+// risk. A capture the PC already holds exists somewhere else, so removing it
+// here loses nothing. A capture that was never sent exists ONLY on this phone,
+// so its receipt goes with it -- that one gets its own button and says so.
+function removeCaptures(predicate) {
+  const kept = load().filter((item) => !predicate(item));
+  save(kept);
+  renderQueue();
+  updateSyncStrip();
+}
+
+function renderQueueActions() {
+  const host = document.getElementById('queue-actions');
+  if (!host) return;
+  const all = load();
+  const onPc = all.filter((item) => item.synced);
+  const phoneOnly = all.filter((item) => !item.synced);
+  let html = '';
+  if (onPc.length) {
+    html += `<button type="button" class="btn ghost" id="clear-synced">Remove ${onPc.length} the PC already has</button>`;
+  }
+  if (phoneOnly.length) {
+    html += `<button type="button" class="btn ghost danger" id="clear-phone-only">Remove ${phoneOnly.length} never sent to the PC</button>`;
+  }
+  host.innerHTML = html;
+
+  const synced = document.getElementById('clear-synced');
+  if (synced) {
+    synced.addEventListener('click', () => {
+      if (!confirm(`Remove ${onPc.length} capture(s) from this list?\n\nThe PC already has them, so nothing is lost. Anything still marked "On this phone only" stays.`)) return;
+      removeCaptures((item) => item.synced);
+    });
+  }
+  const local = document.getElementById('clear-phone-only');
+  if (local) {
+    local.addEventListener('click', () => {
+      if (!confirm(`Remove ${phoneOnly.length} capture(s) that were NEVER sent to the PC?\n\nThey exist only on this phone. Their photos go with them and cannot be recovered.`)) return;
+      removeCaptures((item) => !item.synced);
+    });
+  }
+}
+
 function renderQueue() {
   const list = queueRowsToShow();
   const host = document.getElementById('queue-list');
-  if (!list.length) { host.innerHTML = '<p class="hint">Nothing waiting. Everything this phone captured is on the PC.</p>'; return; }
+  if (!list.length) {
+    host.innerHTML = '<p class="hint">Nothing waiting. Everything this phone captured is on the PC.</p>';
+    renderQueueActions();
+    return;
+  }
   const reports = getCachedReports();
   const groupLabel = (item) => {
     const report = reports.find((r) => r.reportRef && r.reportRef === item.reportRef);
@@ -1227,6 +1284,7 @@ function renderQueue() {
       retryScan(button.dataset.scanRetry);
     });
   });
+  renderQueueActions();
 }
 
 function updateSyncStrip(busyMessage) {
