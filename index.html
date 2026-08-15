@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="2.3">
+<meta name="application-version" content="2.4">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -61,6 +61,7 @@
   .attach-strip { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
   .attach-thumb-wrap { position: relative; width: 44px; height: 44px; }
   .attach-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 9px; border: 1px solid var(--line); display: block; }
+  img.attach-thumb { cursor: zoom-in; }
   .attach-remove {
     position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%;
     border: 1px solid var(--line); background: #fff; color: var(--danger); font-size: 12px; line-height: 1; padding: 0;
@@ -183,7 +184,8 @@
   .exdetail img { width: 100%; max-height: 72vh; object-fit: contain; border-radius: 8px; border: 1px solid var(--line); display: block; cursor: zoom-in; background: #f7f8fa; }
   .receipt-lightbox { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(15, 24, 38, .88); }
   .receipt-lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; }
-  .receipt-lightbox button { position: absolute; top: 12px; right: 14px; border: 0; background: #fff; color: var(--navy); border-radius: 50%; width: 36px; height: 36px; font-size: 24px; line-height: 1; }
+  /* 44px, not 36: this is the control you tap after every single receipt. */
+  .receipt-lightbox button { position: absolute; top: 12px; right: 14px; border: 0; background: #fff; color: var(--navy); border-radius: 50%; width: 44px; height: 44px; font-size: 26px; line-height: 1; }
   .exdetail .hint { font-size: 12px; }
   /* Edit, inside the opened line. 44px so it meets the touch floor, and 14px
      because it is a control the user reads. */
@@ -196,7 +198,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="app-version">v2.3</span></header>
+<header><h1>Expense Hub</h1><span class="app-version">v2.4</span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -718,6 +720,22 @@ function dataUrlOf(shot) {
   return (shot && typeof shot.base64 === 'string') ? shot.base64 : '';
 }
 
+// Tap a receipt to see it full screen. The report detail has had this; the
+// capture screen never did, and its thumbnails are 44px -- too small to tell a
+// readable photo from a blurred one, which is exactly the check you want to
+// make BEFORE saving, not after the receipt is in a drawer somewhere.
+function openReceiptLightbox(src) {
+  if (!src) return;
+  const lightbox = document.createElement('div');
+  lightbox.className = 'receipt-lightbox';
+  lightbox.innerHTML = '<button type="button" aria-label="Close">&times;</button><img alt="Receipt">';
+  lightbox.querySelector('img').src = src;
+  lightbox.addEventListener('click', (click) => {
+    if (click.target === lightbox || click.target.tagName === 'BUTTON') lightbox.remove();
+  });
+  document.body.appendChild(lightbox);
+}
+
 function renderAttachStrip() {
   const host = document.getElementById('attach-strip');
   host.innerHTML = photos.map((p, i) => dataUrlOf(p).startsWith('data:image')
@@ -726,6 +744,9 @@ function renderAttachStrip() {
   ).join('');
   host.querySelectorAll('[data-remove]').forEach((btn) => {
     btn.addEventListener('click', () => { photoDirty = true; photos.splice(Number(btn.dataset.remove), 1); renderAttachStrip(); });
+  });
+  host.querySelectorAll('img.attach-thumb').forEach((image) => {
+    image.addEventListener('click', () => openReceiptLightbox(image.src));
   });
 }
 
@@ -1815,14 +1836,7 @@ function renderReportDetail() {
   document.querySelectorAll('#report-detail-lines .receipt-preview').forEach((image) => {
     image.addEventListener('click', (event) => {
       event.stopPropagation();
-      const lightbox = document.createElement('div');
-      lightbox.className = 'receipt-lightbox';
-      lightbox.innerHTML = '<button type="button" aria-label="Close">&times;</button><img alt="Receipt">';
-      lightbox.querySelector('img').src = image.src;
-      lightbox.addEventListener('click', (click) => {
-        if (click.target === lightbox || click.target.tagName === 'BUTTON') lightbox.remove();
-      });
-      document.body.appendChild(lightbox);
+      openReceiptLightbox(image.src);
     });
   });
 

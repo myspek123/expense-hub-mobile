@@ -28,10 +28,31 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="2.3"' in HTML
-    assert '>v2.3</span>' in HTML
+    assert 'content="2.4"' in HTML
+    assert '>v2.4</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v13" in service_worker
+    assert "eh-mobile-v14" in service_worker
+
+
+# -- 2026-08-15: tap a receipt on the capture screen to see it full size ----
+
+def test_capture_thumbnails_open_the_receipt_full_size():
+    """44px is too small to tell a readable photo from a blurred one, and that
+    check belongs BEFORE saving."""
+    strip = HTML[HTML.index("function renderAttachStrip()") :]
+    strip = strip[: strip.index("document.getElementById('f-photo')")]
+    assert "host.querySelectorAll('img.attach-thumb')" in strip
+    assert "openReceiptLightbox(image.src)" in strip
+    # the remove x must never double as the viewer: the listener is on the
+    # image itself, not on the wrapper both controls share
+    assert "querySelectorAll('.attach-thumb-wrap')" not in strip
+
+
+def test_only_one_lightbox_implementation_exists():
+    """It was copied inline inside the report-detail handler. One opener now,
+    used by both screens."""
+    assert HTML.count("lightbox.className = 'receipt-lightbox'") == 1
+    assert HTML.count("openReceiptLightbox(") >= 3  # definition + two callers
 
 
 # -- 2026-08-15: the Sync list can finally be cleared by hand ---------------
