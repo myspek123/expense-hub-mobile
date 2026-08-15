@@ -104,6 +104,12 @@
   .qrow .status.pending { background: var(--amber-bg); color: var(--amber); }
   .qrow .status.waiting { background: #eef2fa; color: var(--navy); }
   .qrow .status.synced { background: var(--green-bg); color: var(--green); }
+  .scan-pill { display: inline-block; margin-left: 8px; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+  .scan-pill.pending, .scan-pill.failed { background: var(--amber-bg); color: var(--amber); }
+  .scan-pill.done { background: var(--green-bg); color: var(--green); }
+  .scan-retry { border: 0; font: inherit; cursor: pointer; }
+  .scan-mark { display: none; margin-left: 6px; color: var(--green); font-size: 10px; font-weight: 700; text-transform: none; letter-spacing: 0; }
+  .field.scanned .scan-mark { display: inline; }
   nav { display: flex; background: #fff; border-bottom: 1px solid var(--line); }
   nav button { flex: 1; border: 0; background: none; padding: 12px 4px; font-size: 12px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; }
   nav button.active { color: var(--navy); border-bottom-color: var(--navy); }
@@ -206,7 +212,7 @@
       </div>
     </div>
     <div class="field">
-      <label>Expense date</label>
+        <label>Expense date <small class="scan-mark" data-scan-mark="DATE">Scanned</small></label>
       <!-- The date the user READS and TYPES is this text box, always
            dd/mm/yyyy. The native picker is still here behind the calendar
            button, but it never renders the value on screen. See
@@ -236,7 +242,7 @@
       </div>
     </div>
     <div class="field">
-      <label>Category</label>
+      <label>Category <small class="scan-mark" data-scan-mark="CATEGORY">Scanned</small></label>
       <select id="f-category">
         <option value="">Choose a category</option>
         <option>Automobile Expense</option>
@@ -252,11 +258,11 @@
     </div>
     <div class="row">
       <div class="field">
-        <label>Amount</label>
+        <label>Amount <small class="scan-mark" data-scan-mark="AMOUNT">Scanned</small></label>
         <input id="f-amount" type="text" inputmode="decimal" placeholder="0.00">
       </div>
       <div class="field" style="flex:0 0 100px">
-        <label>Currency</label>
+        <label>Currency <small class="scan-mark" data-scan-mark="CURRENCY">Scanned</small></label>
         <select id="f-currency">
           <option>EUR</option>
           <option>USD</option>
@@ -341,6 +347,14 @@
         <button type="button" class="btn ghost" id="toggle-sync-code" aria-label="Show sync code" aria-pressed="false" style="padding:0 14px">Show</button>
       </div>
     </div>
+    <div class="field">
+      <label>Receipt scan URL</label>
+      <input id="f-scan-url" type="text" placeholder="Paste the receipt scan deployment URL">
+    </div>
+    <div class="field">
+      <label>Receipt scan token</label>
+      <input id="f-scan-token" type="password" placeholder="Paste the receipt scan token" autocomplete="off">
+    </div>
     <button type="button" class="btn ghost" id="save-settings" style="width:100%;height:44px">Save</button>
     <p class="hint">Paste the deployment URL from the Apps Script setup here once, on this phone, one time. If you update apps-script.gs, redeploy from Manage deployments so this same URL keeps working.</p>
     <p class="hint">The sync code is the same shared code typed into the PC's own settings. Leave blank until your PC tells you one has been set up.</p>
@@ -358,6 +372,8 @@
 const STORE_KEY = 'eh_mobile_queue_v1';
 const URL_KEY = 'eh_mobile_sync_url';
 const CODE_KEY = 'eh_mobile_sync_code';
+const SCAN_URL_KEY = 'eh_mobile_scan_url';
+const SCAN_TOKEN_KEY = 'eh_mobile_scan_token';
 const LAST_PAID_KEY = 'eh_mobile_last_paid';
 const CARDS_KEY = 'eh_mobile_cards';
 const PROFILE_KEY = 'eh_mobile_profile';
@@ -381,8 +397,15 @@ const PHONE_TYPE_TO_FLOW = { 'LTI': 'LTI', 'TP': 'TP', 'INSEAD-YARON': 'INSEAD-Y
 let photos = [];
 let editingLocalId = null;
 let selectedReportRef = '';
+let manualFields = new Set();
+let photoDirty = false;
+const OCR_FIELDS = ['AMOUNT', 'DATE', 'CURRENCY', 'CATEGORY'];
+const TEST_OFFLINE = new URLSearchParams(location.search).get('offline') === '1';
 
 function getSyncCode() { return localStorage.getItem(CODE_KEY) || ''; }
+function isOnline() { return !TEST_OFFLINE && navigator.onLine; }
+function getScanUrl() { return localStorage.getItem(SCAN_URL_KEY) || ''; }
+function getScanToken() { return localStorage.getItem(SCAN_TOKEN_KEY) || ''; }
 
 function load() { try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch (e) { return []; } }
 function save(list) { localStorage.setItem(STORE_KEY, JSON.stringify(list)); }
@@ -611,6 +634,7 @@ function selectDateOffset(offset) {
 }
 
 document.getElementById('f-date-pick').addEventListener('click', () => {
+  manualFields.add('DATE');
   const native = document.getElementById('f-date');
   if (typeof native.showPicker === 'function') { native.showPicker(); return; }
   // Older browsers have no showPicker: fall back to making the native input
@@ -621,11 +645,13 @@ document.getElementById('f-date-pick').addEventListener('click', () => {
 });
 
 document.getElementById('f-date').addEventListener('change', () => {
+  manualFields.add('DATE');
   setExpenseDate(document.getElementById('f-date').value);
   document.querySelectorAll('[data-offset]').forEach((b) => b.classList.remove('on'));
 });
 
 document.getElementById('f-date-text').addEventListener('input', () => {
+  manualFields.add('DATE');
   const iso = isoFromDdmmyyyy(document.getElementById('f-date-text').value);
   if (iso) document.getElementById('f-date').value = iso;
   document.querySelectorAll('[data-offset]').forEach((b) => b.classList.remove('on'));
@@ -638,8 +664,12 @@ document.getElementById('f-date-text').addEventListener('blur', () => {
 });
 
 document.querySelectorAll('[data-offset]').forEach((btn) => {
-  btn.addEventListener('click', () => selectDateOffset(Number(btn.dataset.offset)));
+  btn.addEventListener('click', () => { manualFields.add('DATE'); selectDateOffset(Number(btn.dataset.offset)); });
 });
+
+document.getElementById('f-category').addEventListener('change', () => manualFields.add('CATEGORY'));
+document.getElementById('f-amount').addEventListener('input', () => manualFields.add('AMOUNT'));
+document.getElementById('f-currency').addEventListener('change', () => manualFields.add('CURRENCY'));
 
 // One reader for the queue's photo shape, used by every screen that shows a
 // receipt. A queued photo is { base64, name }; a very old queue entry could be
@@ -658,7 +688,7 @@ function renderAttachStrip() {
     : `<div class="attach-thumb-wrap"><div class="attach-thumb" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--muted)">FILE</div><button type="button" class="attach-remove" data-remove="${i}">&times;</button></div>`
   ).join('');
   host.querySelectorAll('[data-remove]').forEach((btn) => {
-    btn.addEventListener('click', () => { photos.splice(Number(btn.dataset.remove), 1); renderAttachStrip(); });
+    btn.addEventListener('click', () => { photoDirty = true; photos.splice(Number(btn.dataset.remove), 1); renderAttachStrip(); });
   });
 }
 
@@ -668,6 +698,7 @@ document.getElementById('f-photo').addEventListener('change', async (e) => {
     try {
       const dataUrl = await compressImage(file);
       photos.push({ base64: dataUrl, name: file.name });
+      photoDirty = true;
     } catch (err) {
       showToast("Couldn't read " + file.name + ". Skipped it.");
     }
@@ -740,6 +771,8 @@ document.addEventListener('click', (e) => {
 function clearForm() {
   editingLocalId = null;
   selectedReportRef = '';
+  manualFields = new Set();
+  photoDirty = false;
   document.getElementById('edit-banner').style.display = 'none';
   document.getElementById('report-field').classList.remove('bad');
   document.getElementById('f-report-type').value = '';
@@ -751,6 +784,7 @@ function clearForm() {
   document.getElementById('f-photo').value = '';
   photos = [];
   renderAttachStrip();
+  renderScanMarks([]);
   selectDateOffset(0);
 }
 
@@ -774,7 +808,124 @@ function validateCapture() {
   return true;
 }
 
-function saveCapture(opts) {
+function dataUrlParts(dataUrl) {
+  const text = String(dataUrl || '');
+  const comma = text.indexOf(',');
+  if (comma < 0) return { mimeType: 'image/jpeg', base64: text };
+  const header = text.slice(0, comma);
+  return {
+    mimeType: (header.match(/^data:([^;]+)/i) || [null, 'image/jpeg'])[1],
+    base64: text.slice(comma + 1)
+  };
+}
+
+function bytesFromBase64(base64) {
+  const binary = atob(String(base64 || ''));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function hashDataUrl(dataUrl) {
+  const bytes = bytesFromBase64(dataUrlParts(dataUrl).base64);
+  if (!window.crypto || !window.crypto.subtle) return '';
+  const digest = await window.crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest)).map((value) => value.toString(16).padStart(2, '0')).join('');
+}
+
+async function hashFirstPhoto() {
+  const first = photos[0] && dataUrlOf(photos[0]);
+  return first && first.startsWith('data:') ? hashDataUrl(first) : '';
+}
+
+function activeScanCategories() {
+  return Array.from(document.querySelectorAll('#f-category option'))
+    .map((option) => option.value || option.textContent.trim())
+    .filter((value) => value && value !== 'Choose a category');
+}
+
+function renderScanMarks(fields) {
+  const names = new Set(Array.isArray(fields) ? fields : String(fields || '').split(','));
+  document.querySelectorAll('[data-scan-mark]').forEach((mark) => {
+    const field = mark.closest('.field');
+    if (field) field.classList.toggle('scanned', names.has(mark.dataset.scanMark));
+  });
+}
+
+function scanStatusMarkup(item) {
+  if (item.ocrStatus === 'pending') return '<span class="scan-pill pending">Scan pending</span>';
+  if (item.ocrStatus === 'failed') return '<button type="button" class="scan-pill failed scan-retry" data-scan-retry="' + escapeHtml(item.localId) + '">Scan failed, retry</button>';
+  return '';
+}
+
+function applyScanResult(item, result) {
+  const fields = result && result.fields && typeof result.fields === 'object' ? result.fields : {};
+  const confidence = result && result.confidence && typeof result.confidence === 'object' ? result.confidence : {};
+  const manual = new Set(item.ocrManualFields || []);
+  const fillable = new Set(item.ocrFillableFields || OCR_FIELDS);
+  const filled = new Set((Array.isArray(item.ocrFields) ? item.ocrFields : String(item.ocrFields || '').split(',')).filter((name) => !manual.has(name)));
+  OCR_FIELDS.forEach((name) => {
+    const key = name.toLowerCase();
+    const value = fields[key];
+    if (value == null || manual.has(name) || !['high', 'medium'].includes(String(confidence[key] || '').toLowerCase())) return;
+    const current = name === 'AMOUNT' ? item.amount : name === 'DATE' ? item.date : name === 'CURRENCY' ? item.currency : item.category;
+    const empty = !String(current || '').trim() || (name === 'CATEGORY' && current === 'Uncategorized');
+    if (!empty && !fillable.has(name)) return;
+    if (name === 'AMOUNT') item.amount = String(value);
+    if (name === 'DATE') item.date = String(value);
+    if (name === 'CURRENCY') item.currency = String(value).toUpperCase();
+    if (name === 'CATEGORY') item.category = String(value);
+    filled.add(name);
+  });
+  item.ocrFields = OCR_FIELDS.filter((name) => filled.has(name));
+  item.ocrStatus = 'done';
+  if (editingLocalId === item.localId) renderScanMarks(item.ocrFields);
+}
+
+let scanInFlight = false;
+async function drainScanQueue(userAsked) {
+  if (scanInFlight || !isOnline()) return;
+  const url = getScanUrl();
+  const token = getScanToken();
+  if (!url || !token) return;
+  scanInFlight = true;
+  const list = load();
+  let changed = false;
+  try {
+    for (const item of list) {
+      if (item.ocrStatus !== 'pending' || !item.photos || !item.photos.length) continue;
+      try {
+        const photo = dataUrlOf(item.photos[0]);
+        const parts = dataUrlParts(photo);
+        const response = await fetch(url, {
+          method: 'POST',
+          // Keep this a simple cross-origin POST, matching the existing sync
+          // path so Apps Script does not need an OPTIONS handler.
+          body: JSON.stringify({
+            version: '1.0', token, requestId: item.localId,
+            mimeType: parts.mimeType, image: parts.base64, categories: activeScanCategories()
+          })
+        });
+        const result = await response.json();
+        if (!response.ok || result.ok !== true) throw new Error('scan failed');
+        applyScanResult(item, result);
+        if (!item.ocrImageHash) item.ocrImageHash = await hashDataUrl(photo);
+        changed = true;
+      } catch (error) {
+        item.ocrStatus = 'failed';
+        changed = true;
+      }
+    }
+    if (changed) save(list);
+  } finally {
+    scanInFlight = false;
+    renderQueue();
+    updateSyncStrip();
+  }
+  if (userAsked) showToast(changed ? 'Receipt scan queue checked.' : 'Nothing was waiting to scan.');
+}
+
+async function saveCapture(opts) {
   // Quick save is a photo and nothing else, by design: snap the receipt on the
   // way out of the restaurant and deal with it later. Requiring a report type
   // here (added 31/07 for the full Save, correctly) broke that, and the user
@@ -785,6 +936,12 @@ function saveCapture(opts) {
   const paidWith = paidBtn ? paidBtn.dataset.paid : '';
   const list = load();
   const isEdit = !!editingLocalId;
+  const prior = isEdit ? list.find((entry) => entry.localId === editingLocalId) : null;
+  const shouldScan = photos.length > 0 && (!prior || photoDirty || prior.ocrStatus !== 'done');
+  const ocrFields = (prior && Array.isArray(prior.ocrFields) ? prior.ocrFields : []).filter((name) => !manualFields.has(name));
+  const ocrImageHash = photos.length && !photoDirty && prior && prior.ocrImageHash
+    ? prior.ocrImageHash
+    : (photos.length ? await hashFirstPhoto() : '');
   const item = {
     localId: isEdit ? editingLocalId : uid(),
     reportType: document.getElementById('f-report-type').value,
@@ -797,6 +954,11 @@ function saveCapture(opts) {
     description: document.getElementById('f-description').value,
     paidWith: paidWith,
     photos: photos,
+    ocrStatus: shouldScan ? 'pending' : (photos.length && prior ? (prior.ocrStatus || '') : ''),
+    ocrFields: ocrFields,
+    ocrManualFields: Array.from(manualFields),
+    ocrFillableFields: OCR_FIELDS.filter((name) => !manualFields.has(name)),
+    ocrImageHash: ocrImageHash,
     synced: false,
     awaitingPcUpdate: false
   };
@@ -816,6 +978,7 @@ function saveCapture(opts) {
   if (paidWith) localStorage.setItem(LAST_PAID_KEY, paidWith);
   clearForm();
   updateSyncStrip();
+  drainScanQueue();
   attemptSync();
   document.querySelector('nav button[data-tab="queue"]').click();
   return true;
@@ -863,6 +1026,9 @@ function openForEdit(localId) {
   document.getElementById('f-description').value = source.description || '';
   selectPaidChip(source.paidWith || '');
   photos = (item.photos || []).slice();
+  manualFields = new Set(item.ocrManualFields || []);
+  photoDirty = false;
+  renderScanMarks(item.ocrFields || []);
   renderAttachStrip();
   document.querySelector('nav button[data-tab="capture"]').click();
 }
@@ -984,12 +1150,24 @@ function renderQueue() {
     html += `
     <div class="qrow" data-open="${escapeHtml(item.localId)}" style="cursor:pointer">
       <div>${ddmmyyyy(display.date)} &middot; ${escapeHtml(display.category || 'No category')}${description} &middot; ${escapeHtml(String(display.amount ?? '0'))} ${escapeHtml(display.currency || '')}${item.sentWarning ? '<div class="hint">This report was sent on the PC. The capture stays here for 30 days.</div>' : ''}</div>
-      <span class="status ${state.key}">${state.label}</span>
+      <span><span class="status ${state.key}">${state.label}</span>${scanStatusMarkup(item)}</span>
     </div>`;
   });
   host.innerHTML = html;
   host.querySelectorAll('[data-open]').forEach((row) => {
     row.addEventListener('click', () => openForEdit(row.dataset.open));
+  });
+  host.querySelectorAll('[data-scan-retry]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const list = load();
+      const item = list.find((entry) => entry.localId === button.dataset.scanRetry);
+      if (!item) return;
+      item.ocrStatus = 'pending';
+      save(list);
+      renderQueue();
+      drainScanQueue(true);
+    });
   });
 }
 
@@ -1027,7 +1205,7 @@ async function attemptSync(userAsked) {
     updateSyncStrip();
     return;
   }
-  if (!navigator.onLine) {
+  if (!isOnline()) {
     if (userAsked) showToast('This phone is offline. Nothing was sent.');
     updateSyncStrip();
     return;
@@ -1110,7 +1288,7 @@ function getCachedExpenses() {
 
 async function fetchReports() {
   const url = localStorage.getItem(URL_KEY);
-  if (!url || !navigator.onLine) return;
+  if (!url || !isOnline()) return;
   const code = getSyncCode();
   const codePart = code ? '&code=' + encodeURIComponent(code) : '';
   try {
@@ -1548,6 +1726,9 @@ function escapeHtml(value) {
 document.getElementById('save-settings').addEventListener('click', () => {
   localStorage.setItem(URL_KEY, document.getElementById('f-sync-url').value.trim());
   localStorage.setItem(CODE_KEY, document.getElementById('f-sync-code').value.trim());
+  localStorage.setItem(SCAN_URL_KEY, document.getElementById('f-scan-url').value.trim());
+  localStorage.setItem(SCAN_TOKEN_KEY, document.getElementById('f-scan-token').value.trim());
+  drainScanQueue(true);
   attemptSync();
   fetchReports();
   document.querySelector('nav button[data-tab="capture"]').click();
@@ -1562,7 +1743,7 @@ document.getElementById('toggle-sync-code').addEventListener('click', (event) =>
   event.currentTarget.setAttribute('aria-pressed', showing ? 'false' : 'true');
 });
 
-window.addEventListener('online', () => { attemptSync(); fetchReports(); });
+window.addEventListener('online', () => { drainScanQueue(); attemptSync(); fetchReports(); });
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
@@ -1570,6 +1751,8 @@ if ('serviceWorker' in navigator) {
 
 document.getElementById('f-sync-url').value = localStorage.getItem(URL_KEY) || '';
 document.getElementById('f-sync-code').value = localStorage.getItem(CODE_KEY) || '';
+document.getElementById('f-scan-url').value = localStorage.getItem(SCAN_URL_KEY) || '';
+document.getElementById('f-scan-token').value = localStorage.getItem(SCAN_TOKEN_KEY) || '';
 document.querySelectorAll('[data-profile]').forEach((b) => b.classList.toggle('on', b.dataset.profile === getProfile()));
 populateReportTypes();
 renderPaidChips();
@@ -1578,6 +1761,7 @@ updateSyncStrip();
 renderReports();
 restoreLastScreen();
 attemptSync();
+drainScanQueue();
 fetchReports();
 </script>
 </body>

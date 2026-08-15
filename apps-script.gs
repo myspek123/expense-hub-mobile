@@ -1,5 +1,5 @@
 // Expense Hub Mobile -- Apps Script Web App
-// VERSION 1.7
+// VERSION 1.8
 // Paste this whole file into Extensions > Apps Script on the Google Sheet
 // created for mobile capture. Deploy > Manage deployments > edit (pencil)
 // > Version: New version > Deploy, so the URL you already pasted into the
@@ -7,7 +7,7 @@
 //
 // After redeploying, open the Web App URL directly in a browser (paste the
 // same URL from the phone's Settings field into any browser address bar).
-// The JSON response includes "version":"1.7" -- if it still says an older
+// The JSON response includes "version":"1.8" -- if it still says an older
 // number, the redeploy did not actually take and that is the bug, not the
 // code below.
 //
@@ -24,7 +24,8 @@
 //
 // Sheet columns (MobileCaptures, row 1, exact order):
 // Timestamp | LocalId | ReportType | ReportName | Date | Category |
-// Amount | Currency | Description | PaidWith | PhotoUrls | ReportRef
+// Amount | Currency | Description | PaidWith | PhotoUrls | ReportRef |
+// OcrStatus | OcrFields | OcrImageHash | OcrManualFields
 // (ReportRef added 2026-08-01: which real PC report, if any, the phone
 // picked from PCReports -- blank means free-typed, unfiled on the PC side.)
 //
@@ -42,7 +43,7 @@
 // stay on the PC only. Never edited here by
 // hand.
 
-var VERSION = '1.7';
+var VERSION = '1.8';
 var SHEET_NAME = 'MobileCaptures';
 var PC_REPORTS_SHEET_NAME = 'PCReports';
 var PC_EXPENSES_SHEET_NAME = 'PCExpenses';
@@ -88,7 +89,11 @@ function doPost(e) {
       data.description || '',
       data.paidWith || '',
       photoUrls.join(', '),
-      data.reportRef || ''
+      data.reportRef || '',
+      data.ocrStatus || '',
+      Array.isArray(data.ocrFields) ? data.ocrFields.join(',') : (data.ocrFields || ''),
+      data.ocrImageHash || '',
+      Array.isArray(data.ocrManualFields) ? data.ocrManualFields.join(',') : (data.ocrManualFields || '')
     ];
 
     // A phone can re-send a localId it already sent once, either as a
@@ -192,7 +197,7 @@ function exportCaptures() {
   var sheet = getOrCreateSheet();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  var values = sheet.getRange(2, 1, lastRow - 1, 12).getValues();
+  var values = sheet.getRange(2, 1, lastRow - 1, 16).getValues();
   var out = [];
   values.forEach(function(row) {
     var localId = row[1];
@@ -209,7 +214,11 @@ function exportCaptures() {
       description: row[8],
       paidWith: row[9],
       photos: photoUrlsToBase64(row[10]),
-      reportRef: row[11] || ''
+      reportRef: row[11] || '',
+      ocrStatus: row[12] || '',
+      ocrFields: row[13] || '',
+      ocrImageHash: row[14] || '',
+      ocrManualFields: row[15] || ''
     });
   });
   return out;
@@ -306,7 +315,8 @@ function getOrCreateSheet() {
     sheet = ss.insertSheet(SHEET_NAME);
     sheet.appendRow([
       'Timestamp', 'LocalId', 'ReportType', 'ReportName', 'Date',
-      'Category', 'Amount', 'Currency', 'Description', 'PaidWith', 'PhotoUrls', 'ReportRef'
+      'Category', 'Amount', 'Currency', 'Description', 'PaidWith', 'PhotoUrls', 'ReportRef',
+      'OcrStatus', 'OcrFields', 'OcrImageHash', 'OcrManualFields'
     ]);
     return sheet;
   }
@@ -316,6 +326,9 @@ function getOrCreateSheet() {
   if (String(sheet.getRange(1, 12).getValue()) !== 'ReportRef') {
     sheet.getRange(1, 12).setValue('ReportRef');
   }
+  sheet.getRange(1, 13, 1, 4).setValues([[
+    'OcrStatus', 'OcrFields', 'OcrImageHash', 'OcrManualFields'
+  ]]);
   return sheet;
 }
 
