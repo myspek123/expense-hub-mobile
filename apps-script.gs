@@ -1,5 +1,5 @@
 // Expense Hub Mobile -- Apps Script Web App
-// VERSION 1.8
+// VERSION 1.9
 // Paste this whole file into Extensions > Apps Script on the Google Sheet
 // created for mobile capture. Deploy > Manage deployments > edit (pencil)
 // > Version: New version > Deploy, so the URL you already pasted into the
@@ -7,7 +7,7 @@
 //
 // After redeploying, open the Web App URL directly in a browser (paste the
 // same URL from the phone's Settings field into any browser address bar).
-// The JSON response includes "version":"1.8" -- if it still says an older
+// The JSON response includes "version":"1.9" -- if it still says an older
 // number, the redeploy did not actually take and that is the bug, not the
 // code below.
 //
@@ -37,13 +37,14 @@
 //
 // Sheet columns (PCExpenses, row 1, exact order) -- new 2026-08-02:
 // EXP_ID | REPORT_REF | DATE | CATEGORY | DESCRIPTION | PAID_WITH | AMOUNT |
-// CURRENCY | HAS_RECEIPT | NDF
+// CURRENCY | HAS_RECEIPT | NDF | REJECTED | REJECTED_NOTE | LOCAL_ID |
+// PC_TAKEN_AT | OCR_FIELDS
 // Written only by expense_hub/mobile_push.py, delete-then-rewrite on every
 // push. Every Draft report's lines are sent so an older line cannot silently
 // stay on the PC only. Never edited here by
 // hand.
 
-var VERSION = '1.8';
+var VERSION = '1.9';
 var SHEET_NAME = 'MobileCaptures';
 var PC_REPORTS_SHEET_NAME = 'PCReports';
 var PC_EXPENSES_SHEET_NAME = 'PCExpenses';
@@ -141,18 +142,19 @@ function doPushExpenses_(data) {
   var sheet = getOrCreatePCExpensesSheet();
   var expenses = data.expenses || [];
   if (sheet.getLastRow() > 1) {
-    sheet.getRange(2, 1, sheet.getLastRow() - 1, 14).clearContent();
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, 15).clearContent();
   }
   var rows = expenses.map(function(x) {
     return [
       x.expId || '', x.reportRef || '', x.date || '', x.category || '',
       x.description || '', x.paidWith || '', x.amount || '', x.currency || '',
       x.hasReceipt ? 1 : 0, x.ndf ? 1 : 0,
-      x.rejected ? 1 : 0, x.rejectedNote || '', x.localId || '', x.pcTakenAt || ''
+      x.rejected ? 1 : 0, x.rejectedNote || '', x.localId || '', x.pcTakenAt || '',
+      Array.isArray(x.ocrFields) ? x.ocrFields.join(',') : (x.ocrFields || '')
     ];
   });
   if (rows.length) {
-    sheet.getRange(2, 1, rows.length, 14).setValues(rows);
+    sheet.getRange(2, 1, rows.length, 15).setValues(rows);
   }
   return respond({ ok: true, received: rows.length });
 }
@@ -271,7 +273,7 @@ function listPCExpenses() {
   var sheet = getOrCreatePCExpensesSheet();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  var values = sheet.getRange(2, 1, lastRow - 1, 14).getValues();
+  var values = sheet.getRange(2, 1, lastRow - 1, 15).getValues();
   var out = [];
   values.forEach(function(row) {
     if (!row[0]) return;
@@ -282,7 +284,8 @@ function listPCExpenses() {
       hasReceipt: row[8] === 1 || row[8] === true,
       ndf: row[9] === 1 || row[9] === true,
       rejected: row[10] === 1 || row[10] === true,
-      rejectedNote: row[11] || '', localId: row[12] || '', pcTakenAt: row[13] || ''
+      rejectedNote: row[11] || '', localId: row[12] || '', pcTakenAt: row[13] || '',
+      ocrFields: row[14] || ''
     });
   });
   return out;
@@ -296,13 +299,14 @@ function getOrCreatePCExpensesSheet() {
     sheet.appendRow([
       'EXP_ID', 'REPORT_REF', 'DATE', 'CATEGORY', 'DESCRIPTION', 'PAID_WITH',
       'AMOUNT', 'CURRENCY', 'HAS_RECEIPT', 'NDF', 'REJECTED', 'REJECTED_NOTE',
-      'LOCAL_ID', 'PC_TAKEN_AT'
+      'LOCAL_ID', 'PC_TAKEN_AT', 'OCR_FIELDS'
     ]);
-  } else if (String(sheet.getRange(1, 11).getValue()) !== 'REJECTED') {
-    sheet.getRange(1, 1, 1, 14).setValues([[
+  } else if (String(sheet.getRange(1, 11).getValue()) !== 'REJECTED'
+      || String(sheet.getRange(1, 15).getValue()) !== 'OCR_FIELDS') {
+    sheet.getRange(1, 1, 1, 15).setValues([[
       'EXP_ID', 'REPORT_REF', 'DATE', 'CATEGORY', 'DESCRIPTION', 'PAID_WITH',
       'AMOUNT', 'CURRENCY', 'HAS_RECEIPT', 'NDF', 'REJECTED', 'REJECTED_NOTE',
-      'LOCAL_ID', 'PC_TAKEN_AT'
+      'LOCAL_ID', 'PC_TAKEN_AT', 'OCR_FIELDS'
     ]]);
   }
   return sheet;

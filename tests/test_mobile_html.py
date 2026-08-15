@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="2.1"' in HTML
+    assert 'content="2.2"' in HTML
     assert '>v2.2</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v11" in service_worker
+    assert "eh-mobile-v12" in service_worker
 
 
 # -- 2026-08-02: Medical on both profiles, Queue renamed Unfiled, report
@@ -151,6 +151,7 @@ def test_a_rejected_line_is_visible_on_the_phone_too():
     source = push.read_text(encoding="utf-8")
     assert '"rejected": bool(line.get("rejected")),' in source
     assert '"rejectedNote": line.get("rejected_note", ""),' in source
+    assert '"ocrFields": line.get("ocr_fields", ""),' in source
 
 
 def test_the_native_date_picker_follows_the_dd_mm_yyyy_rule():
@@ -322,3 +323,35 @@ def test_phone_typed_report_is_visible_while_the_pc_creates_it():
     assert "status: 'Waiting for PC'" in HTML
     assert "function reconcileLocalReports(remote)" in HTML
     assert "const openAttrs = r.reportRef ?" in HTML
+
+
+def test_last_report_is_preselected_after_a_save():
+    assert "const LAST_REPORT_KEY = 'eh_mobile_last_report';" in HTML
+    assert "function rememberLastReport(item)" in HTML
+    assert "function restoreLastReport()" in HTML
+    assert "rememberLastReport(item);" in HTML
+    assert "restoreLastReport();" in HTML
+
+
+def test_scan_status_is_visible_inside_the_open_expense_until_done():
+    assert 'id="capture-scan-status"' in HTML
+    assert "function renderCaptureScanStatus(item)" in HTML
+    assert "renderCaptureScanStatus(item);" in HTML
+    scan = HTML[HTML.index("function scanStatusMarkup(item)"):]
+    assert "return '';" in scan[:700]
+
+
+def test_unfiled_queue_group_is_last_and_report_lines_have_a_scan_icon():
+    queue = HTML[HTML.index("function renderQueue()"):]
+    queue = queue[: queue.index("function updateSyncStrip")]
+    assert "noTypeNoReport" in queue
+    assert "Number(noTypeNoReport(a)) - Number(noTypeNoReport(b))" in queue
+    assert "scanned-ico" in HTML
+    assert "title=\"Scanned\"" in HTML
+
+
+def test_amount_currency_row_gives_currency_enough_room_for_its_marker():
+    assert 'class="row amount-row"' in HTML
+    assert 'class="field currency-field"' in HTML
+    assert ".amount-row .currency-field { flex: 0 0 128px; }" in HTML
+    assert ".amount-row .currency-field label { white-space: nowrap;" in HTML

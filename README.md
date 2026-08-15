@@ -46,6 +46,32 @@ Manage deployments -> New version.** Opening the Web App URL directly in a
 browser shows `"version":"..."` in the JSON response -- that is how you
 confirm a redeploy actually took, without guessing.
 
+The current file is version **1.9**. It adds `OCR_FIELDS` to the `PCExpenses`
+tab. You do not need to add that column by hand: the script adds or repairs
+the header when the next PC push runs. To activate it exactly:
+
+1. Open the existing Apps Script project attached to the mobile Sheet.
+2. Replace all code with the current `apps-script.gs` from this repo.
+3. Click **Save**.
+4. Click **Deploy -> Manage deployments**.
+5. Click the pencil icon for the existing Web app deployment.
+6. Set **Version** to **New version** and click **Deploy**.
+7. Open the Web app URL in a browser. Confirm the JSON contains
+   `"version":"1.9"`.
+
+If the PC ever has a capture that remains in the pull output under `Skipped`,
+the PC keeps a small diagnostic ledger at
+`<EXPENSE_HUB_ROOT>/_mobile_sync/skipped.json`. Successful imports remove
+their own entries. To deliberately empty that ledger later, run this exact
+command from the `expense-hub` folder:
+
+```powershell
+python -m expense_hub.mobile_pull --clear-skipped
+```
+
+That clears only the diagnostic ledger; it does not delete phone captures,
+receipts, expenses, reports, or rows from Google Sheets.
+
 ## Securing the endpoint -- v1.3, 2026-08-01
 
 Only Yaron's and Ella's phones are meant to ever use this. To lock it down:
