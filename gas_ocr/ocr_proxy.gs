@@ -2,7 +2,7 @@
 // This is a separate Apps Script Web App from apps-script.gs. It does not
 // read or write the mobile sync Sheet and has its own deployment.
 
-var OCR_VERSION = '1.1';
+var OCR_VERSION = '1.2';
 var OCR_MODEL = 'gemini-2.5-pro';
 var OCR_MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
@@ -57,8 +57,19 @@ function callGemini_(bytes, mimeType, categories) {
   var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
   var endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/' +
     OCR_MODEL + ':generateContent?key=' + encodeURIComponent(key);
+  // The category is decided by WHAT THE MERCHANT IS, not by the words on the
+  // ticket. A Mercure hotel bill came back as Meals and Entertainment because
+  // it listed a breakfast (user, 2026-08-16). The business the receipt comes
+  // from is the answer; the line items are not.
   var categoryInstruction = categories.length
-    ? 'Choose category exactly from this list: ' + JSON.stringify(categories) + '.'
+    ? [
+        'Choose category exactly from this list: ' + JSON.stringify(categories) + '.',
+        'Decide it from WHAT THE BUSINESS IS, using its name and letterhead, not from the individual line items.',
+        'A hotel bill is lodging even when it includes breakfast, dinner, a bar tab or laundry. Hotel chains include Mercure, Ibis, Novotel, Accor, Marriott, Hilton, Holiday Inn, B&B, Campanile.',
+        'A restaurant, cafe, bar or bakery is meals. A car park, parking meter or garage is parking. A train, plane, ferry, taxi, VTC or car hire is travel. A phone, internet or software bill is the IT or telephone category.',
+        'If the business type and the line items disagree, follow the business type and set the category confidence to medium.'
+      ].join('
+')
     : 'No category list was supplied. Do not return a category.';
   var prompt = [
     'Read this photograph of a receipt and return only the requested JSON fields.',
