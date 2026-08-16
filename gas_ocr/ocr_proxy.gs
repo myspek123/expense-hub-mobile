@@ -2,7 +2,7 @@
 // This is a separate Apps Script Web App from apps-script.gs. It does not
 // read or write the mobile sync Sheet and has its own deployment.
 
-var OCR_VERSION = '1.0';
+var OCR_VERSION = '1.1';
 var OCR_MODEL = 'gemini-2.5-pro';
 var OCR_MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
@@ -64,6 +64,8 @@ function callGemini_(bytes, mimeType, categories) {
     'Read this photograph of a receipt and return only the requested JSON fields.',
     'Extract the total actually paid including tax, the purchase date, the three-letter ISO currency, and a category when a list is supplied.',
     'Do not use an estimate, a pre-authorisation amount, a subtotal, a line item, or an amount not actually paid.',
+    'A card slip usually prints the card masked, for example "##########2091" or "XXXX XXXX XXXX 1234". Return its LAST FOUR DIGITS as card_last4, digits only.',
+    'Return null for card_last4 when the receipt shows no card number, when it was paid in cash, or when fewer than four digits are legible. Never return digits taken from a phone number, a VAT number, a till number, a date or a total.',
     'Return null for any field you cannot read with confidence instead of guessing.',
     'Use date YYYY-MM-DD. Set confidence low when text is faded, cropped, creased, blurred, or partly obscured.',
     categoryInstruction
@@ -118,9 +120,10 @@ function responseSchema_(categories) {
     amount: { type: 'NUMBER', nullable: true },
     date: { type: 'STRING', nullable: true },
     currency: { type: 'STRING', nullable: true },
+    card_last4: { type: 'STRING', nullable: true },
     confidence: confidenceSchema_()
   };
-  var ordering = ['amount', 'date', 'currency'];
+  var ordering = ['amount', 'date', 'currency', 'card_last4'];
   if (categories.length) {
     properties.category = { type: 'STRING', enum: categories, nullable: true };
     ordering.push('category');
@@ -134,9 +137,10 @@ function confidenceSchema_() {
     amount: { type: 'STRING', enum: ['high', 'medium', 'low'] },
     date: { type: 'STRING', enum: ['high', 'medium', 'low'] },
     currency: { type: 'STRING', enum: ['high', 'medium', 'low'] },
-    category: { type: 'STRING', enum: ['high', 'medium', 'low'] }
+    category: { type: 'STRING', enum: ['high', 'medium', 'low'] },
+    card_last4: { type: 'STRING', enum: ['high', 'medium', 'low'] }
   };
-  return { type: 'OBJECT', properties: properties, required: ['amount', 'date', 'currency', 'category'], propertyOrdering: ['amount', 'date', 'currency', 'category'] };
+  return { type: 'OBJECT', properties: properties, required: ['amount', 'date', 'currency', 'category', 'card_last4'], propertyOrdering: ['amount', 'date', 'currency', 'category', 'card_last4'] };
 }
 
 function normalizeFields_(result, categories) {
@@ -146,13 +150,17 @@ function normalizeFields_(result, categories) {
     amount: result.amount == null ? null : Number(result.amount),
     date: result.date == null ? null : String(result.date),
     currency: result.currency == null ? null : String(result.currency).toUpperCase(),
-    category: categories.length ? (result.category != null ? String(result.category) : null) : null
+    category: categories.length ? (result.category != null ? String(result.category) : null) : null,
+    card_last4: result.card_last4 == null ? null : String(result.card_last4).replace(/\D/g, '')
   };
   if (fields.amount != null && (!isFinite(fields.amount) || fields.amount < 0)) return { ok: false, code: 'unknown' };
   if (fields.date != null && !/^\d{4}-\d{2}-\d{2}$/.test(fields.date)) fields.date = null;
   if (fields.currency != null && !/^[A-Z]{3}$/.test(fields.currency)) fields.currency = null;
   if (categories.length && fields.category != null && categories.indexOf(fields.category) < 0) return { ok: false, code: 'unknown' };
-  ['amount', 'date', 'currency', 'category'].forEach(function(name) {
+  // Four digits or nothing. A partial read is worse than no read: it would
+  // either match no card, or match the wrong one.
+  if (fields.card_last4 != null && !/^\d{4}$/.test(fields.card_last4)) fields.card_last4 = null;
+  ['amount', 'date', 'currency', 'category', 'card_last4'].forEach(function(name) {
     if (['high', 'medium', 'low'].indexOf(String(confidence[name] || 'low')) < 0) confidence[name] = 'low';
   });
   return { ok: true, fields: fields, confidence: confidence };
