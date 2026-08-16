@@ -423,6 +423,10 @@ const PROFILE_TYPES = { Yaron: ['LTI', 'TP', 'INSEAD-YARON', 'MEDICAL'], Ella: [
 const PHONE_TYPE_TO_FLOW = { 'LTI': 'LTI', 'TP': 'TP', 'INSEAD-YARON': 'INSEAD-YARON', 'INSEAD-ELLA': 'ELLA', 'MEDICAL': 'MEDICAL' };
 let photos = [];
 let editingLocalId = null;
+// The PC-side receipt file for the expense being edited, so the edit screen
+// can offer it. Empty when this phone took its own photo, or when the PC has
+// not pushed since the sync script gained RECEIPT_FILE.
+let editingPcReceiptFile = '';
 let selectedReportRef = '';
 let manualFields = new Set();
 let photoDirty = false;
@@ -785,6 +789,19 @@ function renderAttachStrip() {
   host.querySelectorAll('img.attach-thumb').forEach((image) => {
     image.addEventListener('click', () => openReceiptLightbox(image.src));
   });
+  // The PC's copy of the receipt, on the screen where the expense is edited.
+  // Viewing it from the report was not the point: the reason to look at a
+  // receipt is to correct the amount, the currency or the date against it, and
+  // that happens here (user, 17/08/2026). Shown only when this phone has no
+  // photo of its own, because then the PC's is the only one there is.
+  if (!photos.length && editingPcReceiptFile) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn ghost small';
+    button.textContent = 'View receipt on PC';
+    button.addEventListener('click', () => openPcReceipt(editingPcReceiptFile, button));
+    host.appendChild(button);
+  }
 }
 
 document.getElementById('f-photo').addEventListener('change', async (e) => {
@@ -865,6 +882,7 @@ document.addEventListener('click', (e) => {
 
 function clearForm() {
   editingLocalId = null;
+  editingPcReceiptFile = '';
   selectedReportRef = '';
   manualFields = new Set();
   photoDirty = false;
@@ -1246,6 +1264,7 @@ function openForEdit(localId) {
   document.getElementById('f-currency').value = source.currency || 'EUR';
   document.getElementById('f-description').value = source.description || '';
   selectPaidChip(source.paidWith || '');
+  editingPcReceiptFile = (pc && pc.receiptFile) || '';
   photos = (item.photos || []).slice();
   manualFields = new Set(item.ocrManualFields || []);
   photoDirty = false;
