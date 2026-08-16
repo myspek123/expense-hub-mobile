@@ -64,7 +64,7 @@ function callGemini_(bytes, mimeType, categories) {
     'Read this photograph of a receipt and return only the requested JSON fields.',
     'Extract the total actually paid including tax, the purchase date, the three-letter ISO currency, and a category when a list is supplied.',
     'Do not use an estimate, a pre-authorisation amount, a subtotal, a line item, or an amount not actually paid.',
-    'A card slip usually prints the card masked, for example "##########2091" or "XXXX XXXX XXXX 1234". Return its LAST FOUR DIGITS as card_last4, digits only.',
+    'A card slip usually prints the card masked, for example "##########1234" or "XXXX XXXX XXXX 1234". Return its LAST FOUR DIGITS as card_last4, digits only.',
     'Return null for card_last4 when the receipt shows no card number, when it was paid in cash, or when fewer than four digits are legible. Never return digits taken from a phone number, a VAT number, a till number, a date or a total.',
     'Return null for any field you cannot read with confidence instead of guessing.',
     'Use date YYYY-MM-DD. Set confidence low when text is faded, cropped, creased, blurred, or partly obscured.',
