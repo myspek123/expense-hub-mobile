@@ -213,7 +213,14 @@
 
 <main>
   <section id="tab-capture" class="active">
-    <div id="edit-banner" class="hint" style="display:none;color:var(--amber)"></div>
+    <!-- Editing an expense used to have exactly one way out: Save. Opened from
+         a report to look at something, the only escape was to save a change
+         you did not want to make, or to hit a tab and leave the form still
+         holding the expense (user, 17/08/2026). Cancel is the way out. -->
+    <div id="edit-banner" class="hint" style="display:none;color:var(--amber);align-items:center;justify-content:space-between;gap:10px">
+      <span id="edit-banner-text"></span>
+      <button type="button" id="edit-cancel" class="btn ghost small" style="margin-left:10px">Cancel</button>
+    </div>
     <div id="capture-scan-status" class="capture-scan-status" role="status" aria-live="polite"></div>
     <div class="field" id="report-field">
       <label>Report</label>
@@ -1193,6 +1200,17 @@ document.getElementById('btn-quick-save').addEventListener('click', () => {
   saveCapture({ quick: true });
 });
 
+// Leave an edit without saving it. Returns to Reports, which is where the
+// edit is opened from; clearForm already drops editingLocalId, the photos and
+// the scan marks, so nothing is left half-held.
+function cancelEdit() {
+  clearForm();
+  const reportsTab = document.querySelector('nav button[data-tab="reports"]');
+  if (reportsTab) reportsTab.click();
+}
+
+document.getElementById('edit-cancel').addEventListener('click', cancelEdit);
+
 function openForEdit(localId) {
   const list = load();
   const item = list.find((i) => i.localId === localId);
@@ -1214,8 +1232,8 @@ function openForEdit(localId) {
     : item;
   clearForm();
   editingLocalId = localId;
-  document.getElementById('edit-banner').style.display = 'block';
-  document.getElementById('edit-banner').textContent = item.synced
+  document.getElementById('edit-banner').style.display = 'flex';
+  document.getElementById('edit-banner-text').textContent = item.synced
     ? 'Editing an already-synced expense. Saving will update it.'
     : 'Editing a not-yet-synced expense.';
   document.getElementById('f-report-type').value = source.reportType || '';
