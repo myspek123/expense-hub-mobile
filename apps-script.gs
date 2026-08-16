@@ -1,5 +1,5 @@
 // Expense Hub Mobile -- Apps Script Web App
-// VERSION 1.10
+// VERSION 1.11
 // Paste this whole file into Extensions > Apps Script on the Google Sheet
 // created for mobile capture. Deploy > Manage deployments > edit (pencil)
 // > Version: New version > Deploy, so the URL you already pasted into the
@@ -44,7 +44,7 @@
 // stay on the PC only. Never edited here by
 // hand.
 
-var VERSION = '1.10';
+var VERSION = '1.11';
 var SHEET_NAME = 'MobileCaptures';
 var PC_REPORTS_SHEET_NAME = 'PCReports';
 var PC_EXPENSES_SHEET_NAME = 'PCExpenses';
@@ -142,7 +142,7 @@ function doPushExpenses_(data) {
   var sheet = getOrCreatePCExpensesSheet();
   var expenses = data.expenses || [];
   if (sheet.getLastRow() > 1) {
-    sheet.getRange(2, 1, sheet.getLastRow() - 1, 16).clearContent();
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, 17).clearContent();
   }
   var rows = expenses.map(function(x) {
     return [
@@ -151,11 +151,11 @@ function doPushExpenses_(data) {
       x.hasReceipt ? 1 : 0, x.ndf ? 1 : 0,
       x.rejected ? 1 : 0, x.rejectedNote || '', x.localId || '', x.pcTakenAt || '',
       Array.isArray(x.ocrFields) ? x.ocrFields.join(',') : (x.ocrFields || ''),
-      x.deleted ? 1 : 0
+      x.deleted ? 1 : 0, x.receiptFile || ''
     ];
   });
   if (rows.length) {
-    sheet.getRange(2, 1, rows.length, 16).setValues(rows);
+    sheet.getRange(2, 1, rows.length, 17).setValues(rows);
   }
   return respond({ ok: true, received: rows.length });
 }
@@ -178,6 +178,15 @@ function doGet(e) {
   if (e.parameter && e.parameter.action === 'export') {
     return respond({ ok: true, version: VERSION, captures: exportCaptures() });
   }
+  // A receipt captured on the PC, fetched on demand so the phone can look at
+  // it (2026-08-16). The PC's data root lives inside the Google Drive folder,
+  // so the file is already in Drive and this script runs as the same single
+  // Google account -- nothing is shared, no link is published, and the phone
+  // stores nothing. Asked for by file name, which Expense Hub makes unique
+  // (EXP-000123_2026-04-22_Meals.jpg).
+  if (e.parameter && e.parameter.action === 'receipt') {
+    return respond(receiptByName_(e.parameter.name));
+  }
   return respond({ ok: true, version: VERSION, message: 'Expense Hub Mobile sync endpoint is live.' });
 }
 
@@ -196,10 +205,45 @@ function formatDateCell_(value) {
   return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
 }
 
+// How big a receipt this will hand back. A phone photo off the PC can be
+// several megabytes, and base64 inflates it by a third; past that the request
+// is slower than it is useful and Apps Script starts refusing to build the
+// response at all. Answering "too big" is better than timing out.
+var RECEIPT_MAX_BYTES = 8 * 1024 * 1024;
+
+function receiptByName_(name) {
+  name = String(name || '').trim();
+  if (!name) return { ok: false, version: VERSION, error: 'No receipt name given.' };
+  var files = DriveApp.getFilesByName(name);
+  if (!files.hasNext()) {
+    // Almost always means Drive has not finished syncing the PC's folder yet,
+    // which is worth saying plainly rather than showing an empty frame.
+    return {
+      ok: false,
+      version: VERSION,
+      error: 'Not in Drive yet. It syncs from the PC, so try again shortly.'
+    };
+  }
+  var file = files.next();
+  if (file.getSize() > RECEIPT_MAX_BYTES) {
+    return { ok: false, version: VERSION, error: 'That receipt is too large to open on the phone.' };
+  }
+  var blob = file.getBlob();
+  return {
+    ok: true,
+    version: VERSION,
+    name: file.getName(),
+    mimeType: blob.getContentType(),
+    dataBase64: Utilities.base64Encode(blob.getBytes())
+  };
+}
+
 function exportCaptures() {
   var sheet = getOrCreateSheet();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
+  // 16, not 17. This reads the phone's own MobileCaptures sheet, which is a
+  // different shape from PCExpenses -- RECEIPT_FILE was added to that one.
   var values = sheet.getRange(2, 1, lastRow - 1, 16).getValues();
   var out = [];
   values.forEach(function(row) {
@@ -274,7 +318,7 @@ function listPCExpenses() {
   var sheet = getOrCreatePCExpensesSheet();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  var values = sheet.getRange(2, 1, lastRow - 1, 16).getValues();
+  var values = sheet.getRange(2, 1, lastRow - 1, 17).getValues();
   var out = [];
   values.forEach(function(row) {
     var isDeleted = row[15] === 1 || row[15] === true;
@@ -290,7 +334,8 @@ function listPCExpenses() {
       rejected: row[10] === 1 || row[10] === true,
       rejectedNote: row[11] || '', localId: row[12] || '', pcTakenAt: row[13] || '',
       ocrFields: row[14] || '',
-      deleted: isDeleted
+      deleted: isDeleted,
+      receiptFile: row[16] || ''
     });
   });
   return out;
@@ -304,15 +349,16 @@ function getOrCreatePCExpensesSheet() {
     sheet.appendRow([
       'EXP_ID', 'REPORT_REF', 'DATE', 'CATEGORY', 'DESCRIPTION', 'PAID_WITH',
       'AMOUNT', 'CURRENCY', 'HAS_RECEIPT', 'NDF', 'REJECTED', 'REJECTED_NOTE',
-      'LOCAL_ID', 'PC_TAKEN_AT', 'OCR_FIELDS', 'DELETED'
+      'LOCAL_ID', 'PC_TAKEN_AT', 'OCR_FIELDS', 'DELETED', 'RECEIPT_FILE'
     ]);
   } else if (String(sheet.getRange(1, 11).getValue()) !== 'REJECTED'
       || String(sheet.getRange(1, 15).getValue()) !== 'OCR_FIELDS'
-      || String(sheet.getRange(1, 16).getValue()) !== 'DELETED') {
-    sheet.getRange(1, 1, 1, 16).setValues([[
+      || String(sheet.getRange(1, 16).getValue()) !== 'DELETED'
+      || String(sheet.getRange(1, 17).getValue()) !== 'RECEIPT_FILE') {
+    sheet.getRange(1, 1, 1, 17).setValues([[
       'EXP_ID', 'REPORT_REF', 'DATE', 'CATEGORY', 'DESCRIPTION', 'PAID_WITH',
       'AMOUNT', 'CURRENCY', 'HAS_RECEIPT', 'NDF', 'REJECTED', 'REJECTED_NOTE',
-      'LOCAL_ID', 'PC_TAKEN_AT', 'OCR_FIELDS', 'DELETED'
+      'LOCAL_ID', 'PC_TAKEN_AT', 'OCR_FIELDS', 'DELETED', 'RECEIPT_FILE'
     ]]);
   }
   return sheet;

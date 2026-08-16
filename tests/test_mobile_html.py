@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="2.9"' in HTML
-    assert '>v2.9</span>' in HTML
+    assert 'content="3.0"' in HTML
+    assert '>v3.0</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v19" in service_worker
+    assert "eh-mobile-v20" in service_worker
 
 
 # -- 2026-08-16 evening: what the first real gallery run turned up ----------
@@ -465,7 +465,12 @@ def test_corrected_pc_line_keeps_the_phone_receipt_by_local_id():
     panel = HTML[HTML.index("function receiptPanelHtml(line)"):]
     panel = panel[: panel.index("function openReportDetail")]
     assert "if (line.hasReceipt)" in panel
-    assert "This receipt is stored on the PC. Open the expense in Expense Hub to view it." in panel
+    # v3.0: a PC receipt is now openable from the phone rather than being
+    # described as unreachable. "Open it in Expense Hub" is no help when you
+    # are away from the PC, which is the only time you are holding the phone.
+    assert "pcReceiptHtml(line)" in panel
+    assert "data-view-receipt" in panel
+    assert "action=receipt&name=" in panel
 
 
 def test_pc_corrected_values_are_used_by_the_edit_form():

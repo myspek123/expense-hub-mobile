@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="2.9">
+<meta name="application-version" content="3.0">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -202,7 +202,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="app-version">v2.9</span></header>
+<header><h1>Expense Hub</h1><span class="app-version">v3.0</span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1722,7 +1722,7 @@ function receiptPanelHtml(line) {
     const shots = local.photos || [];
     if (!shots.length) {
       if (line.hasReceipt) {
-        return `<div class="exdetail">${meta}<p class="hint">This receipt is stored on the PC. Open the expense in Expense Hub to view it.</p>${editButton}</div>`;
+        return `<div class="exdetail">${meta}${pcReceiptHtml(line)}${editButton}</div>`;
       }
       return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p>${editButton}</div>`;
     }
@@ -1744,7 +1744,49 @@ function receiptPanelHtml(line) {
   if (!line.hasReceipt) {
     return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p></div>`;
   }
-  return `<div class="exdetail">${meta}<p class="hint">This receipt is stored on the PC. Open the expense in Expense Hub to view it.</p></div>`;
+  return `<div class="exdetail">${meta}${pcReceiptHtml(line)}</div>`;
+}
+
+// A receipt that lives on the PC. It used to say "open it in Expense Hub",
+// which is no help at all when you are away from the PC -- which is the only
+// time you are holding the phone (2026-08-16).
+//
+// The image is fetched only when tapped and only into memory. Nothing is
+// written to localStorage: a real camera photo in phone storage broke this app
+// once already by blowing the quota silently, and a screen full of receipts
+// would do it again. Requires the PC to have pushed at least once since
+// v1.11, which is what supplies receiptFile.
+function pcReceiptHtml(line) {
+  if (!line.receiptFile) {
+    return '<p class="hint">This receipt is on the PC. Sync from the PC once to be able to open it here.</p>';
+  }
+  return `<button type="button" class="line-edit" data-view-receipt="${escapeHtml(line.receiptFile)}">View receipt</button>`;
+}
+
+async function openPcReceipt(name, button) {
+  const url = localStorage.getItem(URL_KEY);
+  if (!url) { alert('Set the sync URL in Settings first.'); return; }
+  if (!isOnline()) { alert('This receipt is on the PC, so it needs a connection to open.'); return; }
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Opening...';
+  try {
+    const code = getSyncCode();
+    const codePart = code ? '&code=' + encodeURIComponent(code) : '';
+    const res = await fetch(url + (url.includes('?') ? '&' : '?')
+      + 'action=receipt&name=' + encodeURIComponent(name) + codePart);
+    const json = await res.json();
+    if (!json.ok) {
+      alert(json.error || 'That receipt could not be opened.');
+      return;
+    }
+    openReceiptLightbox('data:' + (json.mimeType || 'image/jpeg') + ';base64,' + json.dataBase64);
+  } catch (e) {
+    alert('Could not reach the PC sync endpoint to fetch that receipt.');
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
 }
 
 function openReportDetail(reportRef, report) {
@@ -1993,6 +2035,12 @@ function renderReportDetail() {
     button.addEventListener('click', (event) => {
       event.stopPropagation();
       openForEdit(button.dataset.editLine);
+    });
+  });
+  document.querySelectorAll('#report-detail-lines [data-view-receipt]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openPcReceipt(button.dataset.viewReceipt, button);
     });
   });
   document.querySelectorAll('#report-detail-lines .receipt-preview').forEach((image) => {
