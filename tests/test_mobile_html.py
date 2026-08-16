@@ -28,10 +28,44 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="2.8"' in HTML
-    assert '>v2.8</span>' in HTML
+    assert 'content="2.9"' in HTML
+    assert '>v2.9</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v18" in service_worker
+    assert "eh-mobile-v19" in service_worker
+
+
+# -- 2026-08-16 evening: what the first real gallery run turned up ----------
+
+def test_add_many_leaves_the_scanning_to_the_pc():
+    """Marking them pending told THIS PHONE to scan them, so a gallery of
+    receipts ran that many scans off the handset and every one failed."""
+    handler = HTML[HTML.index("document.getElementById('f-many').addEventListener") :]
+    handler = handler[: handler.index("document.getElementById('btn-save')")]
+    assert "ocrStatus: ''" in handler
+    assert "ocrStatus: 'pending'" not in handler
+
+
+def test_a_failed_scan_says_what_went_wrong():
+    drain = HTML[HTML.index("async function drainScanQueue") :]
+    drain = drain[: drain.index("async function saveCapture")]
+    # the proxy's own reason travels instead of a bare "scan failed"
+    assert "result.error.message || result.error.code" in drain
+    assert "item.ocrError =" in drain
+
+    markup = HTML[HTML.index("function scanStatusMarkup(item)") :]
+    markup = markup[: markup.index("function renderCaptureScanStatus")]
+    assert "item.ocrError" in markup
+
+
+def test_a_report_the_pc_never_took_can_be_removed_from_the_phone():
+    """Typed on the phone, never taken by the PC, and there it sat for ever
+    with nothing to press."""
+    assert "function dropPendingReport(type, name)" in HTML
+    reports = HTML[HTML.index("function renderReports()") :]
+    reports = reports[: reports.index("function dropPendingReport")]
+    # only a local-only row gets the control: a real PC report is the PC's
+    assert "r.localOnly" in reports
+    assert "data-drop-report" in reports
 
 
 # -- 2026-08-16: a trip's worth of receipts, straight from the gallery ------
@@ -49,7 +83,6 @@ def test_add_many_makes_one_capture_per_photo():
     assert "photos: [{ base64: dataUrl, name: file.name }]" in handler
     # nothing is typed on the phone: the PC scan fills it
     assert "date: '', category: '', amount: ''" in handler
-    assert "ocrStatus: 'pending'" in handler
     # a photo that will not read must not lose the rest of the pile
     assert "skipped.push(file.name)" in handler
 

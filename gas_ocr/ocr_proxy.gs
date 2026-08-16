@@ -166,7 +166,10 @@ function normalizeFields_(result, categories) {
   if (fields.amount != null && (!isFinite(fields.amount) || fields.amount < 0)) return { ok: false, code: 'unknown' };
   if (fields.date != null && !/^\d{4}-\d{2}-\d{2}$/.test(fields.date)) fields.date = null;
   if (fields.currency != null && !/^[A-Z]{3}$/.test(fields.currency)) fields.currency = null;
-  if (categories.length && fields.category != null && categories.indexOf(fields.category) < 0) return { ok: false, code: 'unknown' };
+  // A category outside the list is not a reason to throw the whole receipt
+  // away: the amount and the date are still worth having. Drop the category
+  // and keep the rest.
+  if (categories.length && fields.category != null && categories.indexOf(fields.category) < 0) fields.category = null;
   // Four digits or nothing. A partial read is worse than no read: it would
   // either match no card, or match the wrong one.
   if (fields.card_last4 != null && !/^\d{4}$/.test(fields.card_last4)) fields.card_last4 = null;

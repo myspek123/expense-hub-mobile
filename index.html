@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="2.8">
+<meta name="application-version" content="2.9">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -130,6 +130,7 @@
   .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
   .band { font-size: 11px; font-weight: 700; letter-spacing: .05em; color: var(--muted); background: #eef2fa; padding: 6px 10px; border-radius: 6px; margin: 14px 0 4px; }
   .band:first-child { margin-top: 0; }
+  .report-drop { border: 0; background: none; color: var(--muted); font-size: 20px; line-height: 1; padding: 0 4px; min-width: 44px; min-height: 44px; }
   .report-row { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--line); font-size: 13px; }
   .status-pill { font-size: 10px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; background: #eef2fa; color: var(--muted); }
   .status-pill.status-draft { background: var(--amber-bg); color: var(--amber); }
@@ -201,7 +202,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="app-version">v2.8</span></header>
+<header><h1>Expense Hub</h1><span class="app-version">v2.9</span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -943,7 +944,15 @@ function renderScanMarks(fields) {
 
 function scanStatusMarkup(item) {
   if (item.ocrStatus === 'pending') return '<span class="scan-pill pending">Scan pending</span>';
-  if (item.ocrStatus === 'failed') return '<button type="button" class="scan-pill failed scan-retry" data-scan-retry="' + escapeHtml(item.localId) + '">Scan failed, retry</button>';
+  if (item.ocrStatus === 'failed') {
+    // The reason, not just the fact. "Scan failed, retry" gave no way to tell
+    // a missing key from an unreadable photo (2026-08-16).
+    const why = String(item.ocrError || '').trim();
+    return '<button type="button" class="scan-pill failed scan-retry" data-scan-retry="'
+      + escapeHtml(item.localId) + '">'
+      + (why ? escapeHtml(why) + ' - retry' : 'Scan failed, retry')
+      + '</button>';
+  }
   return '';
 }
 
@@ -1018,12 +1027,21 @@ async function drainScanQueue(userAsked) {
           })
         });
         const result = await response.json();
-        if (!response.ok || result.ok !== true) throw new Error('scan failed');
+        if (!response.ok || result.ok !== true) {
+          // The proxy says exactly what went wrong. Throwing a bare "scan
+          // failed" threw that away, and the Sync tab could only say the scan
+          // failed with no way to tell a missing key from a bad photo.
+          const detail = result && result.error
+            ? (result.error.message || result.error.code || '')
+            : `HTTP ${response.status}`;
+          throw new Error(String(detail || 'scan failed'));
+        }
         applyScanResult(item, result);
         if (!item.ocrImageHash) item.ocrImageHash = await hashDataUrl(photo);
         changed = true;
       } catch (error) {
         item.ocrStatus = 'failed';
+        item.ocrError = String((error && error.message) || 'scan failed');
         if (editingLocalId === item.localId) renderCaptureScanStatus(item);
         changed = true;
       }
@@ -1132,7 +1150,11 @@ document.getElementById('f-many').addEventListener('change', async (event) => {
         date: '', category: '', amount: '', currency: 'EUR', description: '',
         paidWith: '',
         photos: [{ base64: dataUrl, name: file.name }],
-        ocrStatus: 'pending',
+        // NOT 'pending': that tells THIS PHONE to scan it. A gallery of thirty
+        // receipts then ran thirty scans off the handset, and they all failed
+        // (2026-08-16). The PC scans them when it takes them in, which is the
+        // whole point of sending them over.
+        ocrStatus: '',
         ocrFields: [], ocrManualFields: [], ocrFillableFields: OCR_FIELDS.slice(),
         ocrImageHash: '',
         synced: false,
@@ -1622,13 +1644,40 @@ function renderReports() {
     rows.forEach((r) => {
       const statusClass = 'status-' + String(r.status || '').toLowerCase();
       const openAttrs = r.reportRef ? `data-open-report="${escapeHtml(r.reportRef)}" style="cursor:pointer"` : '';
-      html += `<div class="report-row" ${openAttrs}><div>${escapeHtml(r.name || '(unnamed)')}</div>${r.status ? `<span class="status-pill ${escapeHtml(statusClass)}">${escapeHtml(r.status)}</span>` : ''}</div>`;
+      // A report typed on this phone that the PC never took stays on the list
+      // for ever with nothing to press. It can be removed here; a real PC
+      // report cannot, because that belongs on the PC.
+      const removable = r.localOnly
+        ? `<button type="button" class="report-drop" data-drop-report="${escapeHtml(r.type || '')} ${escapeHtml(r.name || '')}" aria-label="Remove this unsent report">&times;</button>`
+        : '';
+      html += `<div class="report-row" ${openAttrs}><div>${escapeHtml(r.name || '(unnamed)')}</div>${r.status ? `<span class="status-pill ${escapeHtml(statusClass)}">${escapeHtml(r.status)}</span>` : ''}${removable}</div>`;
     });
   });
   host.innerHTML = html || '<p class="hint">No reports from the PC yet. Check back after the next 30-minute sync.</p>';
   host.querySelectorAll('[data-open-report]').forEach((row) => {
     row.addEventListener('click', () => openReportDetail(row.dataset.openReport, all.find((r) => r.reportRef === row.dataset.openReport)));
   });
+  host.querySelectorAll('[data-drop-report]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const [type, name] = String(button.dataset.dropReport || '').split(' ');
+      if (!confirm(`Remove "${name}" from this phone?
+
+It was never taken by the PC. Captures already in it stay on the Sync tab.`)) return;
+      dropPendingReport(type, name);
+    });
+  });
+}
+
+function dropPendingReport(type, name) {
+  let pending = [];
+  try { pending = JSON.parse(localStorage.getItem(PENDING_REPORTS_KEY) || '[]'); } catch (e) { pending = []; }
+  const key = `${type || ''} ${String(name || '').trim().toLowerCase()}`;
+  localStorage.setItem(PENDING_REPORTS_KEY, JSON.stringify(
+    pending.filter((r) => `${r.type || ''} ${String(r.name || '').trim().toLowerCase()}` !== key)
+  ));
+  renderReports();
+  showToast(`"${name}" removed from this phone.`);
 }
 
 // ---- Report detail: this report's expenses, filtered/paginated ----------
