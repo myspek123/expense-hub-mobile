@@ -2010,9 +2010,10 @@ function renderReportDetail() {
     moreBtn.classList.add('hidden');
   }
 
-  document.getElementById('report-detail-footer').textContent = all.length
-    ? `All lines in this open report are shown here.`
-    : '';
+  // The footer used to say "All lines in this open report are shown here",
+  // which told the user something he could already see and nothing he could
+  // act on. Removed 2026-08-16 at his request.
+  document.getElementById('report-detail-footer').textContent = '';
 }
 
 function escapeHtml(value) {
