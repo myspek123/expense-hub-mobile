@@ -28,10 +28,60 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="2.6"' in HTML
-    assert '>v2.6</span>' in HTML
+    assert 'content="2.8"' in HTML
+    assert '>v2.8</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v16" in service_worker
+    assert "eh-mobile-v18" in service_worker
+
+
+# -- 2026-08-16: a trip's worth of receipts, straight from the gallery ------
+
+def test_add_many_makes_one_capture_per_photo():
+    """The PC's drop zone shape, on the phone: thirty photos become thirty
+    captures, each scanned on the PC. Not one capture with thirty photos."""
+    assert 'id="btn-many"' in HTML
+    assert 'id="f-many"' in HTML and 'multiple' in HTML
+
+    handler = HTML[HTML.index("document.getElementById('f-many').addEventListener") :]
+    handler = handler[: handler.index("document.getElementById('btn-save')")]
+    # one list entry per file
+    assert "for (const [index, file] of files.entries())" in handler
+    assert "photos: [{ base64: dataUrl, name: file.name }]" in handler
+    # nothing is typed on the phone: the PC scan fills it
+    assert "date: '', category: '', amount: ''" in handler
+    assert "ocrStatus: 'pending'" in handler
+    # a photo that will not read must not lose the rest of the pile
+    assert "skipped.push(file.name)" in handler
+
+
+def test_add_many_reports_what_it_did():
+    handler = HTML[HTML.index("document.getElementById('f-many').addEventListener") :]
+    handler = handler[: handler.index("document.getElementById('btn-save')")]
+    assert "could not be read" in handler
+    assert "Sending to the PC" in handler
+
+
+# -- 2026-08-16: a phone's cards belong to whoever is holding it ------------
+
+def test_cards_are_stored_per_profile():
+    """Yaron and Ella do not share a wallet. One shared list put her cards in
+    his chips and his in hers."""
+    assert "function cardsKey()" in HTML
+    key = HTML[HTML.index("function cardsKey()") :]
+    key = key[: key.index("function loadCards()")]
+    assert "CARDS_KEY + ':' + getProfile()" in key
+
+    load = HTML[HTML.index("function loadCards()") :]
+    load = load[: load.index("function saveCards(")]
+    # an existing shared list becomes this profile's rather than vanishing
+    assert "localStorage.getItem(CARDS_KEY)" in load
+    assert "localStorage.setItem(cardsKey()" in load
+
+
+def test_switching_profile_redraws_the_cards():
+    switch = HTML[HTML.index("localStorage.setItem(PROFILE_KEY") :]
+    switch = switch[: switch.index("fetchReports();")]
+    assert "renderPaidChips();" in switch
 
 
 # -- 2026-08-16: the PC says what it deleted, so the phone stops waiting ----

@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="2.6">
+<meta name="application-version" content="2.8">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -201,7 +201,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="app-version">v2.6</span></header>
+<header><h1>Expense Hub</h1><span class="app-version">v2.8</span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -381,6 +381,8 @@
 
 <div class="footer-btn" id="footer-capture">
   <button class="btn quick" type="button" id="btn-quick-save">Quick save</button>
+  <button class="btn ghost" type="button" id="btn-many">Add many</button>
+  <input class="hidden" id="f-many" type="file" accept="image/*,.pdf,application/pdf" multiple>
   <button class="btn primary" type="button" id="btn-save">Save</button>
 </div>
 
@@ -543,15 +545,39 @@ document.querySelectorAll('[data-profile]').forEach((btn) => {
     localStorage.setItem(PROFILE_KEY, btn.dataset.profile);
     document.querySelectorAll('[data-profile]').forEach((b) => b.classList.toggle('on', b.dataset.profile === btn.dataset.profile));
     populateReportTypes();
+    // The cards belong to the profile, so they change with it.
+    renderPaidChips();
     renderReports();
     fetchReports();
   });
 });
 
 // ---- Paid with, including phone-added cards -------------------------------
+// Cards belong to the person holding the phone (user, 2026-08-16). Yaron and
+// Ella do not share a wallet, and one shared list meant her cards appeared in
+// his chips and his in hers. The PC still shows every card, which is what he
+// wants there: it is where both people's expenses are reconciled.
+function cardsKey() {
+  return CARDS_KEY + ':' + getProfile();
+}
+
 function loadCards() {
-  try { return JSON.parse(localStorage.getItem(CARDS_KEY) || 'null') || DEFAULT_CARDS.slice(); }
-  catch (e) { return DEFAULT_CARDS.slice(); }
+  try {
+    const own = JSON.parse(localStorage.getItem(cardsKey()) || 'null');
+    if (own) return own;
+    // First run after this change: the one shared list becomes this profile's,
+    // so nobody loses the cards they had already added.
+    const shared = JSON.parse(localStorage.getItem(CARDS_KEY) || 'null');
+    if (shared) {
+      localStorage.setItem(cardsKey(), JSON.stringify(shared));
+      return shared;
+    }
+    return DEFAULT_CARDS.slice();
+  } catch (e) { return DEFAULT_CARDS.slice(); }
+}
+
+function saveCards(cards) {
+  localStorage.setItem(cardsKey(), JSON.stringify(cards));
 }
 
 function renderPaidChips() {
@@ -587,7 +613,7 @@ document.getElementById('card-save').addEventListener('click', () => {
   const cards = loadCards();
   if (!cards.includes(label)) {
     cards.push(label);
-    localStorage.setItem(CARDS_KEY, JSON.stringify(cards));
+    saveCards(cards);
   }
   document.getElementById('card-form').classList.add('hidden');
   document.getElementById('card-name').value = '';
@@ -1070,6 +1096,74 @@ async function saveCapture(opts) {
   document.querySelector('nav button[data-tab="queue"]').click();
   return true;
 }
+
+// Add many: pick a pile out of the gallery and get ONE capture per photo, the
+// same shape the PC's drop zone produces (user, 2026-08-16). Quick save is one
+// receipt at a time; this is the trip that comes home with thirty.
+document.getElementById('btn-many').addEventListener('click', () => {
+  document.getElementById('f-many').click();
+});
+
+document.getElementById('f-many').addEventListener('change', async (event) => {
+  const files = Array.from(event.target.files || []);
+  event.target.value = '';
+  if (!files.length) return;
+
+  const reportType = document.getElementById('f-report-type').value;
+  const reportName = document.getElementById('f-report-name').value;
+  const button = document.getElementById('btn-many');
+  const label = button.textContent;
+  button.disabled = true;
+
+  const list = load();
+  let added = 0;
+  const skipped = [];
+  for (const [index, file] of files.entries()) {
+    button.textContent = `Reading ${index + 1} of ${files.length}…`;
+    try {
+      const dataUrl = await compressImage(file);
+      list.push({
+        localId: uid(),
+        reportType: reportType,
+        reportName: reportName,
+        reportRef: selectedReportRef,
+        // Deliberately empty: the PC scans each one and fills it in. Typing
+        // thirty amounts on a phone is the thing this avoids.
+        date: '', category: '', amount: '', currency: 'EUR', description: '',
+        paidWith: '',
+        photos: [{ base64: dataUrl, name: file.name }],
+        ocrStatus: 'pending',
+        ocrFields: [], ocrManualFields: [], ocrFillableFields: OCR_FIELDS.slice(),
+        ocrImageHash: '',
+        synced: false,
+        awaitingPcUpdate: false
+      });
+      added += 1;
+    } catch (err) {
+      skipped.push(file.name);
+    }
+  }
+
+  button.disabled = false;
+  button.textContent = label;
+  if (!added) {
+    showToast('None of those could be read on this phone.');
+    return;
+  }
+  try {
+    save(list);
+  } catch (err) {
+    showToast("Couldn't save those on this phone (storage full). Try fewer at a time, or free up space.");
+    return;
+  }
+  showToast(
+    `${added} receipt${added === 1 ? '' : 's'} added${skipped.length ? `, ${skipped.length} could not be read` : ''}. Sending to the PC.`
+  );
+  updateSyncStrip();
+  drainScanQueue();
+  attemptSync();
+  document.querySelector('nav button[data-tab="queue"]').click();
+});
 
 document.getElementById('btn-save').addEventListener('click', () => saveCapture());
 document.getElementById('btn-quick-save').addEventListener('click', () => {
