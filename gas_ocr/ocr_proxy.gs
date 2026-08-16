@@ -2,7 +2,7 @@
 // This is a separate Apps Script Web App from apps-script.gs. It does not
 // read or write the mobile sync Sheet and has its own deployment.
 
-var OCR_VERSION = '1.5';
+var OCR_VERSION = '1.6';
 var OCR_MODEL = 'gemini-2.5-flash';
 var OCR_MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
@@ -22,7 +22,7 @@ function doPost(e) {
     if (!response.ok) return failure_(requestId, response.code, response.detail);
     var fields = normalizeFields_(response.result, categories);
     if (!fields.ok) return failure_(requestId, fields.code);
-    return success_(requestId, fields, response.model);
+    return success_(requestId, fields, response.model, response.usage);
   } catch (err) {
     return failure_(requestId, 'unknown');
   }
@@ -78,7 +78,9 @@ function callGemini_(bytes, mimeType, categories) {
     'Return null for card_last4 when the receipt shows no card number, when it was paid in cash, or when fewer than four digits are legible. Never return digits taken from a phone number, a VAT number, a till number, a date or a total.',
     'Return null for any field you cannot read with confidence instead of guessing.',
     'Return the date as YYYY-MM-DD.',
-    'These are FRENCH receipts: a printed date is DAY/MONTH/YEAR. "11/08/26" is the 11th of August 2026, not 2011. "05/03/26" is the 5th of March 2026, never the 3rd of May.',
+    'Work out the date order from the receipt itself, not from a fixed rule. A French or other European receipt prints DAY/MONTH/YEAR, so "11/08/26" is the 11th of August 2026. A United States receipt prints MONTH/DAY/YEAR, so "08/11/26" there is the same day.',
+    'Use the language, the currency, the address and the tax wording to decide which country it is from. EUR with French words is day-first. USD with a state abbreviation or "SALES TAX" is month-first.',
+    'When the two readings are both possible and the country is unclear, choose the one nearer to today.',
     'A two-digit year is 20xx. A receipt is recent: any year before 2020 means you have read the day or the month as the year, so read it again.',
     'Set confidence low when text is faded, cropped, creased, blurred, or partly obscured.',
     categoryInstruction
@@ -126,7 +128,18 @@ function callGemini_(bytes, mimeType, categories) {
     if (finish === 'SAFETY' || finish === 'BLOCKLIST' || finish === 'PROHIBITED_CONTENT') return { ok: false, code: 'blocked' };
     var parts = candidates[0].content && candidates[0].content.parts || [];
     var raw = parts.map(function(part) { return part.text || ''; }).join('');
-    return { ok: true, result: JSON.parse(raw), model: OCR_MODEL };
+    var usage = body.usageMetadata || {};
+    return {
+      ok: true,
+      result: JSON.parse(raw),
+      model: OCR_MODEL,
+      usage: {
+        input: Number(usage.promptTokenCount || 0),
+        output: Number(usage.candidatesTokenCount || 0),
+        thinking: Number(usage.thoughtsTokenCount || 0),
+        total: Number(usage.totalTokenCount || 0)
+      }
+    };
   } catch (err) {
     return { ok: false, code: 'unknown' };
   }
@@ -196,8 +209,8 @@ function normalizeFields_(result, categories) {
   return { ok: true, fields: fields, confidence: confidence };
 }
 
-function success_(requestId, fields, model) {
-  return respond_({version: OCR_VERSION, ok: true, requestId: requestId, fields: fields.fields, confidence: fields.confidence, model: model});
+function success_(requestId, fields, model, usage) {
+  return respond_({version: OCR_VERSION, ok: true, requestId: requestId, fields: fields.fields, confidence: fields.confidence, model: model, usage: usage || {}});
 }
 
 function failure_(requestId, code, detail) {
