@@ -2,8 +2,8 @@
 // This is a separate Apps Script Web App from apps-script.gs. It does not
 // read or write the mobile sync Sheet and has its own deployment.
 
-var OCR_VERSION = '1.2';
-var OCR_MODEL = 'gemini-2.5-pro';
+var OCR_VERSION = '1.3';
+var OCR_MODEL = 'gemini-2.5-flash';
 var OCR_MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
 function doPost(e) {
@@ -192,7 +192,7 @@ function failure_(requestId, code) {
     unknown: 'Receipt scanning failed. Try again.'
   };
   var safeCode = messages[code] ? code : 'unknown';
-  return respond_({version: OCR_VERSION, ok: false, requestId: requestId, error: {code: safeCode, message: messages[safeCode]}});
+  return respond_({version: OCR_VERSION, ok: false, requestId: requestId, model: OCR_MODEL, error: {code: safeCode, message: messages[safeCode]}});
 }
 
 function respond_(obj) {
