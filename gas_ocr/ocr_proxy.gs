@@ -2,7 +2,7 @@
 // This is a separate Apps Script Web App from apps-script.gs. It does not
 // read or write the mobile sync Sheet and has its own deployment.
 
-var OCR_VERSION = '1.4';
+var OCR_VERSION = '1.5';
 var OCR_MODEL = 'gemini-2.5-flash';
 var OCR_MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
@@ -77,7 +77,10 @@ function callGemini_(bytes, mimeType, categories) {
     'A card slip usually prints the card masked, for example "##########1234" or "XXXX XXXX XXXX 1234". Return its LAST FOUR DIGITS as card_last4, digits only.',
     'Return null for card_last4 when the receipt shows no card number, when it was paid in cash, or when fewer than four digits are legible. Never return digits taken from a phone number, a VAT number, a till number, a date or a total.',
     'Return null for any field you cannot read with confidence instead of guessing.',
-    'Use date YYYY-MM-DD. Set confidence low when text is faded, cropped, creased, blurred, or partly obscured.',
+    'Return the date as YYYY-MM-DD.',
+    'These are FRENCH receipts: a printed date is DAY/MONTH/YEAR. "11/08/26" is the 11th of August 2026, not 2011. "05/03/26" is the 5th of March 2026, never the 3rd of May.',
+    'A two-digit year is 20xx. A receipt is recent: any year before 2020 means you have read the day or the month as the year, so read it again.',
+    'Set confidence low when text is faded, cropped, creased, blurred, or partly obscured.',
     categoryInstruction
   ].join('\n');
   var payload = {
