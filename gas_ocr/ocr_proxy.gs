@@ -2,7 +2,7 @@
 // This is a separate Apps Script Web App from apps-script.gs. It does not
 // read or write the mobile sync Sheet and has its own deployment.
 
-var OCR_VERSION = '1.3';
+var OCR_VERSION = '1.4';
 var OCR_MODEL = 'gemini-2.5-flash';
 var OCR_MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
@@ -19,7 +19,7 @@ function doPost(e) {
     if (image.error) return failure_(requestId, image.error);
     var categories = categories_(data.categories);
     var response = callGemini_(image.bytes, image.mimeType, categories);
-    if (!response.ok) return failure_(requestId, response.code);
+    if (!response.ok) return failure_(requestId, response.code, response.detail);
     var fields = normalizeFields_(response.result, categories);
     if (!fields.ok) return failure_(requestId, fields.code);
     return success_(requestId, fields, response.model);
@@ -102,7 +102,11 @@ function callGemini_(bytes, mimeType, categories) {
   }
   var status = result.getResponseCode();
   var text = result.getContentText();
-  if (status === 429) return { ok: false, code: 'rate_limited' };
+  // Google says WHICH limit was hit and when it resets. Throwing that away
+  // left "Receipt scanning is busy" as the only clue, and no way to tell a
+  // burst of requests from a daily allowance that is simply spent
+  // (2026-08-16: a whole evening lost to guessing which).
+  if (status === 429) return { ok: false, code: 'rate_limited', detail: apiMessage_(text) };
   if (status === 408) return { ok: false, code: 'timeout' };
   if (status === 400) return { ok: false, code: 'bad_image' };
   if (status === 401 || status === 403) return { ok: false, code: 'no_key' };
@@ -122,6 +126,16 @@ function callGemini_(bytes, mimeType, categories) {
     return { ok: true, result: JSON.parse(raw), model: OCR_MODEL };
   } catch (err) {
     return { ok: false, code: 'unknown' };
+  }
+}
+
+function apiMessage_(text) {
+  try {
+    var body = JSON.parse(text);
+    var message = body && body.error && body.error.message ? String(body.error.message) : '';
+    return message.slice(0, 300);
+  } catch (err) {
+    return String(text || '').slice(0, 300);
   }
 }
 
@@ -183,7 +197,7 @@ function success_(requestId, fields, model) {
   return respond_({version: OCR_VERSION, ok: true, requestId: requestId, fields: fields.fields, confidence: fields.confidence, model: model});
 }
 
-function failure_(requestId, code) {
+function failure_(requestId, code, detail) {
   var messages = {
     bad_token: 'The scan request was not accepted.', no_key: 'Receipt scanning is not configured yet.',
     bad_image: 'That receipt image could not be read.', too_large: 'That receipt image is too large to scan.',
@@ -192,7 +206,7 @@ function failure_(requestId, code) {
     unknown: 'Receipt scanning failed. Try again.'
   };
   var safeCode = messages[code] ? code : 'unknown';
-  return respond_({version: OCR_VERSION, ok: false, requestId: requestId, model: OCR_MODEL, error: {code: safeCode, message: messages[safeCode]}});
+  return respond_({version: OCR_VERSION, ok: false, requestId: requestId, model: OCR_MODEL, error: {code: safeCode, message: messages[safeCode], detail: detail || ''}});
 }
 
 function respond_(obj) {
