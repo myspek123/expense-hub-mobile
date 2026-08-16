@@ -2,7 +2,7 @@
 // This is a separate Apps Script Web App from apps-script.gs. It does not
 // read or write the mobile sync Sheet and has its own deployment.
 
-var OCR_VERSION = '1.6';
+var OCR_VERSION = '1.7';
 var OCR_MODEL = 'gemini-2.5-flash';
 var OCR_MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
@@ -76,6 +76,8 @@ function callGemini_(bytes, mimeType, categories) {
     'Do not use an estimate, a pre-authorisation amount, a subtotal, a line item, or an amount not actually paid.',
     'A card slip usually prints the card masked, for example "##########1234" or "XXXX XXXX XXXX 1234". Return its LAST FOUR DIGITS as card_last4, digits only.',
     'Return null for card_last4 when the receipt shows no card number, when it was paid in cash, or when fewer than four digits are legible. Never return digits taken from a phone number, a VAT number, a till number, a date or a total.',
+    'The currency comes from the SYMBOL OR CODE PRINTED ON THE RECEIPT, never from what is usual. "£" is GBP, "$" is USD, "€" is EUR, "CHF" is CHF, "AED" or "DH" is AED, "₪" is ILS. A London receipt in pounds is GBP even though most receipts you see are in euros.',
+    'If no symbol or code is printed, use the country: a UK address means GBP, a US address means USD, a French one EUR. Set the currency confidence to low when you are inferring it rather than reading it.',
     'Return null for any field you cannot read with confidence instead of guessing.',
     'Return the date as YYYY-MM-DD.',
     'Work out the date order from the receipt itself, not from a fixed rule. A French or other European receipt prints DAY/MONTH/YEAR, so "11/08/26" is the 11th of August 2026. A United States receipt prints MONTH/DAY/YEAR, so "08/11/26" there is the same day.',
