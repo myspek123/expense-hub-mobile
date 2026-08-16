@@ -68,8 +68,7 @@ function callGemini_(bytes, mimeType, categories) {
         'A hotel bill is lodging even when it includes breakfast, dinner, a bar tab or laundry. Hotel chains include Mercure, Ibis, Novotel, Accor, Marriott, Hilton, Holiday Inn, B&B, Campanile.',
         'A restaurant, cafe, bar or bakery is meals. A car park, parking meter or garage is parking. A train, plane, ferry, taxi, VTC or car hire is travel. A phone, internet or software bill is the IT or telephone category.',
         'If the business type and the line items disagree, follow the business type and set the category confidence to medium.'
-      ].join('
-')
+      ].join(String.fromCharCode(10))
     : 'No category list was supplied. Do not return a category.';
   var prompt = [
     'Read this photograph of a receipt and return only the requested JSON fields.',
