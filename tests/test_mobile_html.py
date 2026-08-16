@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="2.5"' in HTML
-    assert '>v2.5</span>' in HTML
+    assert 'content="2.6"' in HTML
+    assert '>v2.6</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v15" in service_worker
+    assert "eh-mobile-v16" in service_worker
 
 
 # -- 2026-08-16: the PC says what it deleted, so the phone stops waiting ----
@@ -124,7 +124,9 @@ def test_clearing_keeps_every_other_capture():
 
 def test_medical_is_offered_on_both_profiles():
     assert "Yaron: ['LTI', 'TP', 'INSEAD-YARON', 'MEDICAL']" in HTML
-    assert "Ella: ['INSEAD-ELLA', 'MEDICAL']" in HTML
+    # LTI added to Ella on 2026-08-16 at the user's request: she captures
+    # against it too, and only the phone was stopping her.
+    assert "Ella: ['INSEAD-ELLA', 'LTI', 'MEDICAL']" in HTML
     assert "'MEDICAL': 'MEDICAL'" in HTML
 
 

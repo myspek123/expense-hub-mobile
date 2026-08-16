@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="2.5">
+<meta name="application-version" content="2.6">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -201,7 +201,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="app-version">v2.5</span></header>
+<header><h1>Expense Hub</h1><span class="app-version">v2.6</span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -405,7 +405,7 @@ const DEFAULT_CARDS = ['Pro card', 'Perso card', 'Cash'];
 // Medical added 2026-08-02: one shared yearly report both profiles can file
 // into (not per-person -- user ruling), so it appears on both lists. LTI/TP/
 // INSEAD-YARON stay Yaron-only, INSEAD-ELLA stays Ella-only, unchanged.
-const PROFILE_TYPES = { Yaron: ['LTI', 'TP', 'INSEAD-YARON', 'MEDICAL'], Ella: ['INSEAD-ELLA', 'MEDICAL'] };
+const PROFILE_TYPES = { Yaron: ['LTI', 'TP', 'INSEAD-YARON', 'MEDICAL'], Ella: ['INSEAD-ELLA', 'LTI', 'MEDICAL'] };
 // The PC's real reports are keyed by FLOW (its internal enum), which is not
 // spelled the same as the phone's own type dropdown for Ella's flow.
 // Mapped explicitly here, matching expense_hub/mobile_pull.py's
