@@ -28,10 +28,45 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="2.4"' in HTML
-    assert '>v2.4</span>' in HTML
+    assert 'content="2.5"' in HTML
+    assert '>v2.5</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v14" in service_worker
+    assert "eh-mobile-v15" in service_worker
+
+
+# -- 2026-08-16: the PC says what it deleted, so the phone stops waiting ----
+
+def test_a_capture_the_pc_deleted_is_named_as_removed():
+    """It used to read "Waiting for PC" for ever: an absent line and a
+    discarded line look identical from the phone."""
+    state = HTML[HTML.index("function queueState(item)") :]
+    state = state[: state.index("function deletedOnPc(item)")]
+    assert "Removed on the PC" in state
+    # authoritative, so it is answered before every other guess
+    assert state.index("deletedOnPc(item)") < state.index("item.awaitingPcUpdate")
+
+
+def test_the_deleted_flag_comes_from_the_pc_not_from_a_missing_line():
+    check = HTML[HTML.index("function deletedOnPc(item)") :]
+    check = check[: check.index("function matchingPcLine(item)")]
+    assert "line.deleted" in check
+    assert "line.localId === item.localId" in check
+
+
+def test_a_deleted_marker_is_never_read_as_the_pc_holding_the_line():
+    prune = HTML[HTML.index("function pruneQueueForSentReports()") :]
+    prune = prune[: prune.index("function queueRowsToShow()")]
+    assert "cachedExpenses.filter((line) => !line.deleted)" in prune
+
+
+def test_removed_is_grey_and_struck_through_not_red():
+    """Red is for failures. The PC discarding what you told it to discard is a
+    finished job."""
+    assert ".qrow .status.gone" in HTML
+    gone = HTML[HTML.index(".qrow .status.gone") :]
+    gone = gone[: gone.index("}")]
+    assert "line-through" in gone
+    assert "var(--danger)" not in gone
 
 
 # -- 2026-08-15: tap a receipt on the capture screen to see it full size ----

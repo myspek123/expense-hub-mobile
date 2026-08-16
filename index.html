@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="2.4">
+<meta name="application-version" content="2.5">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -108,6 +108,9 @@
   .qrow .status.pending { background: var(--amber-bg); color: var(--amber); }
   .qrow .status.waiting { background: #eef2fa; color: var(--navy); }
   .qrow .status.synced { background: var(--green-bg); color: var(--green); }
+  /* Grey, not red: the PC discarding a capture you asked it to discard
+     is a finished job, not a failure. Red is for failures. */
+  .qrow .status.gone { background: #eceff4; color: var(--muted); text-decoration: line-through; }
   .scan-pill { display: inline-block; margin-left: 8px; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
   .scan-pill.pending, .scan-pill.failed { background: var(--amber-bg); color: var(--amber); }
   .scan-pill.done { background: var(--green-bg); color: var(--green); }
@@ -198,7 +201,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="app-version">v2.4</span></header>
+<header><h1>Expense Hub</h1><span class="app-version">v2.5</span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1149,8 +1152,9 @@ function pruneQueueForSentReports() {
   // never loses a receipt irreversibly.
   list.forEach((item) => {
     if (!item.synced) return;
-    const pc = cachedExpenses.find((line) => line.localId && line.localId === item.localId)
-      || cachedExpenses.find((line) => pendingKey(line.date, line.amount, line.category) === pendingKey(item.date, item.amount, item.category));
+    const live = cachedExpenses.filter((line) => !line.deleted);
+  const pc = live.find((line) => line.localId && line.localId === item.localId)
+      || live.find((line) => pendingKey(line.date, line.amount, line.category) === pendingKey(item.date, item.amount, item.category));
     if (pc && pc.pcTakenAt && !item.pcTakenAt) item.pcTakenAt = pc.pcTakenAt;
     const taken = Date.parse(item.pcTakenAt || '');
     item.expired = Number.isFinite(taken) && Date.now() - taken >= 30 * 24 * 60 * 60 * 1000;
@@ -1173,12 +1177,27 @@ function queueRowsToShow() {
 // separate step to pull a capture in, so the two waits are named separately.
 function queueState(item) {
   if (!item.synced) return { key: 'pending', label: 'On this phone only' };
+  // Checked before anything else: the PC saying it threw this away answers
+  // the question that every other state here is still guessing at. Without
+  // it a deleted capture reads "Waiting for PC" for ever, which is what the
+  // user hit on 2026-08-16 with a 0 EUR row he could not explain or shift.
+  if (deletedOnPc(item)) return { key: 'gone', label: 'Removed on the PC' };
   if (item.awaitingPcUpdate) return { key: 'waiting', label: 'Waiting for PC' };
   if (matchingPcLine(item)) {
     return { key: 'synced', label: 'On the PC' };
   }
   if (item.sentWarning) return { key: 'waiting', label: 'Report sent on PC' };
   return { key: 'waiting', label: 'Waiting for PC' };
+}
+
+// The PC publishes what it deleted, so this is a fact rather than an
+// inference from an absent line. An older Apps Script that does not send the
+// flag simply never matches here, and the phone behaves exactly as before.
+function deletedOnPc(item) {
+  if (!item.localId) return false;
+  return getCachedExpenses().some(
+    (line) => line.deleted && line.localId && line.localId === item.localId
+  );
 }
 
 function matchingPcLine(item) {
