@@ -7,7 +7,7 @@
 //
 // After redeploying, open the Web App URL directly in a browser (paste the
 // same URL from the phone's Settings field into any browser address bar).
-// The JSON response includes "version":"1.14" -- if it still says an older
+// The JSON response includes "version":"1.15" -- if it still says an older
 // number, the redeploy did not actually take and that is the bug, not the
 // code below.
 //
