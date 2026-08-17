@@ -28,12 +28,12 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.2"' in HTML
-    assert '>v3.2</span>' in HTML
+    assert 'content="3.3"' in HTML
+    assert '>v3.3</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v22" in service_worker
+    assert "eh-mobile-v23" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
-    assert "var VERSION = '1.13';" in app_script
+    assert "var VERSION = '1.14';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
     assert 'id="script-version"' in HTML
     assert "function rememberEndpointVersion(payload)" in HTML
@@ -517,6 +517,8 @@ def test_phone_typed_report_is_visible_while_the_pc_creates_it():
     assert "status: 'Waiting for PC'" in HTML
     assert "function reconcileLocalReports(remote)" in HTML
     assert "const openAttrs = r.reportRef ?" in HTML
+    assert "function reportListSummary(report)" in HTML
+    assert "Total unavailable until the PC expense list is synced" in HTML
 
 
 def test_last_report_is_preselected_after_a_save():

@@ -1,5 +1,5 @@
 // Expense Hub Mobile -- Apps Script Web App
-// VERSION 1.13
+// VERSION 1.14
 // Paste this whole file into Extensions > Apps Script on the Google Sheet
 // created for mobile capture. Deploy > Manage deployments > edit (pencil)
 // > Version: New version > Deploy, so the URL you already pasted into the
@@ -7,7 +7,7 @@
 //
 // After redeploying, open the Web App URL directly in a browser (paste the
 // same URL from the phone's Settings field into any browser address bar).
-// The JSON response includes "version":"1.13" -- if it still says an older
+// The JSON response includes "version":"1.14" -- if it still says an older
 // number, the redeploy did not actually take and that is the bug, not the
 // code below.
 //
@@ -30,7 +30,8 @@
 // picked from PCReports -- blank means free-typed, unfiled on the PC side.)
 //
 // Sheet columns (PCReports, row 1, exact order) -- new 2026-08-01:
-// TYPE | NAME | STATUS | REPORT_REF | UPDATED_AT
+// TYPE | NAME | STATUS | REPORT_REF | UPDATED_AT | EXPENSE_COUNT | TOTAL |
+// MISSING_EUR_COUNT
 // Written only by the PC's own expense_hub/mobile_push.py, delete-then-
 // rewrite on every push (same pattern eh_mh_bridge.py uses for
 // FromEH/EHLists). Never edited here by hand.
@@ -45,7 +46,7 @@
 // stay on the PC only. Never edited here by
 // hand.
 
-var VERSION = '1.13';
+var VERSION = '1.14';
 var SHEET_NAME = 'MobileCaptures';
 var PC_REPORTS_SHEET_NAME = 'PCReports';
 var PC_EXPENSES_SHEET_NAME = 'PCExpenses';
@@ -129,13 +130,18 @@ function doPushReports_(data) {
   var sheet = getOrCreatePCReportsSheet();
   var reports = data.reports || [];
   if (sheet.getLastRow() > 1) {
-    sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).clearContent();
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).clearContent();
   }
   var rows = reports.map(function(r) {
-    return [r.type || '', r.name || '', r.status || '', r.reportRef || '', r.updatedAt || ''];
+    return [
+      r.type || '', r.name || '', r.status || '', r.reportRef || '', r.updatedAt || '',
+      r.expenseCount === undefined || r.expenseCount === null ? '' : r.expenseCount,
+      r.total === undefined || r.total === null ? '' : r.total,
+      r.missingEurCount === undefined || r.missingEurCount === null ? '' : r.missingEurCount
+    ];
   });
   if (rows.length) {
-    sheet.getRange(2, 1, rows.length, 5).setValues(rows);
+    sheet.getRange(2, 1, rows.length, 8).setValues(rows);
   }
   return respond({ ok: true, received: rows.length });
 }
@@ -312,11 +318,14 @@ function listPCReports() {
   var sheet = getOrCreatePCReportsSheet();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  var values = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
+  var values = sheet.getRange(2, 1, lastRow - 1, 8).getValues();
   var out = [];
   values.forEach(function(row) {
     if (!row[3]) return;
-    out.push({ type: row[0], name: row[1], status: row[2], reportRef: row[3], updatedAt: row[4] });
+    out.push({
+      type: row[0], name: row[1], status: row[2], reportRef: row[3], updatedAt: row[4],
+      expenseCount: row[5], total: row[6], missingEurCount: row[7]
+    });
   });
   return out;
 }
@@ -410,7 +419,17 @@ function getOrCreatePCReportsSheet() {
   var sheet = ss.getSheetByName(PC_REPORTS_SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(PC_REPORTS_SHEET_NAME);
-    sheet.appendRow(['TYPE', 'NAME', 'STATUS', 'REPORT_REF', 'UPDATED_AT']);
+    sheet.appendRow([
+      'TYPE', 'NAME', 'STATUS', 'REPORT_REF', 'UPDATED_AT', 'EXPENSE_COUNT', 'TOTAL',
+      'MISSING_EUR_COUNT'
+    ]);
+  } else if (String(sheet.getRange(1, 6).getValue()) !== 'EXPENSE_COUNT'
+      || String(sheet.getRange(1, 7).getValue()) !== 'TOTAL'
+      || String(sheet.getRange(1, 8).getValue()) !== 'MISSING_EUR_COUNT') {
+    sheet.getRange(1, 1, 1, 8).setValues([[
+      'TYPE', 'NAME', 'STATUS', 'REPORT_REF', 'UPDATED_AT', 'EXPENSE_COUNT', 'TOTAL',
+      'MISSING_EUR_COUNT'
+    ]]);
   }
   return sheet;
 }

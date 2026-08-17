@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.2">
+<meta name="application-version" content="3.3">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -134,6 +134,8 @@
   .band:first-child { margin-top: 0; }
   .report-drop { border: 0; background: none; color: var(--muted); font-size: 20px; line-height: 1; padding: 0 4px; min-width: 44px; min-height: 44px; }
   .report-row { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .report-row-main { flex: 1; min-width: 0; }
+  .report-meta { color: var(--muted); font-size: 11px; margin-top: 2px; font-variant-numeric: tabular-nums; }
   .status-pill { font-size: 10px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; background: #eef2fa; color: var(--muted); }
   .status-pill.status-draft { background: var(--amber-bg); color: var(--amber); }
   .status-pill.status-sent { background: var(--green-bg); color: var(--green); }
@@ -206,7 +208,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.2</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.3</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1830,7 +1832,19 @@ function renderReports() {
   });
   host.innerHTML = html || '<p class="hint">No reports from the PC yet. Check back after the next 30-minute sync.</p>';
   host.querySelectorAll('[data-open-report]').forEach((row) => {
-    row.addEventListener('click', () => openReportDetail(row.dataset.openReport, all.find((r) => r.reportRef === row.dataset.openReport)));
+    const report = all.find((r) => r.reportRef === row.dataset.openReport);
+    const summary = reportListSummary(report);
+    const main = row.firstElementChild;
+    if (main && report) {
+      main.className = 'report-row-main';
+      const meta = document.createElement('div');
+      meta.className = 'report-meta';
+      meta.textContent = summary
+        ? `${summary.expenseCount} expense${summary.expenseCount === 1 ? '' : 's'} · ${summary.total.toFixed(2)} EUR${summary.missingEurCount ? ` · ${summary.missingEurCount} missing EUR` : ''}`
+        : 'Total unavailable until the PC expense list is synced';
+      main.appendChild(meta);
+    }
+    row.addEventListener('click', () => openReportDetail(row.dataset.openReport, report));
   });
   host.querySelectorAll('[data-drop-report]').forEach((button) => {
     button.addEventListener('click', (event) => {
@@ -1842,6 +1856,27 @@ It was never taken by the PC. Captures already in it stay on the Sync tab.`)) re
       dropPendingReport(type, name);
     });
   });
+}
+
+function reportListSummary(report) {
+  if (!report) return null;
+  if (report.expenseCount !== undefined && report.total !== undefined
+      && report.expenseCount !== '' && report.total !== '') {
+    return {
+      expenseCount: Number(report.expenseCount) || 0,
+      total: Number(report.total) || 0,
+      missingEurCount: Number(report.missingEurCount) || 0,
+    };
+  }
+  // Compatibility with a PCReports sheet pushed before the summary columns
+  // existed. Once PCExpenses is cached, use the same EUR values as detail.
+  if (localStorage.getItem(EXPENSES_CACHE_KEY) === null) return null;
+  const lines = getCachedExpenses().filter((line) => line.reportRef === report.reportRef && !line.deleted);
+  return {
+    expenseCount: lines.length,
+    total: lines.reduce((sum, line) => sum + (reportEurAmount(line) ?? 0), 0),
+    missingEurCount: lines.filter((line) => reportEurAmount(line) === null).length,
+  };
 }
 
 function dropPendingReport(type, name) {
