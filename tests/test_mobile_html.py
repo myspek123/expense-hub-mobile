@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.8"' in HTML
-    assert '>v3.8</span>' in HTML
+    assert 'content="3.9"' in HTML
+    assert '>v3.9</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v28" in service_worker
+    assert "eh-mobile-v29" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.14';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -504,17 +504,12 @@ def test_corrected_pc_line_keeps_the_phone_receipt_by_local_id():
     local_match = local_match[: local_match.index("function receiptPanelHtml(line)")]
     assert "if (line.localId) return queue.find((item) => item.localId === line.localId) || null;" in local_match
     panel = HTML[HTML.index("function receiptPanelHtml(line)"):]
-    panel = panel[: panel.index("function openReportDetail")]
+    panel = panel[: panel.index("async function fetchPcReceiptDataUrl")]
     assert "if (line.hasReceipt)" in panel
-    # v3.0: a PC receipt is now openable from the phone rather than being
-    # described as unreachable. "Open it in Expense Hub" is no help when you
-    # are away from the PC, which is the only time you are holding the phone.
-    assert "pcReceiptHtml(line)" in panel
-    assert "data-view-receipt" in panel
-    assert "action=receipt&name=" in panel
+    assert "pcReceiptHtml(line)" not in panel
+    assert "data-view-receipt" not in panel
     assert "Review expense" in panel
-    assert "isLtiReport" in panel
-    assert "const reportReceipt = isLtiReport ? '' : pcReceiptHtml(line);" in panel
+    assert "isLtiReport" not in panel
 
 
 def test_pc_corrected_values_are_used_by_the_edit_form():
