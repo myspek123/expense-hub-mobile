@@ -28,12 +28,12 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.11"' in HTML
-    assert '>v3.11</span>' in HTML
+    assert 'content="3.12"' in HTML
+    assert '>v3.12</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v31" in service_worker
+    assert "eh-mobile-v32" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
-    assert "var VERSION = '1.15';" in app_script
+    assert "var VERSION = '1.16';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
     assert 'id="script-version"' in HTML
     assert "function rememberEndpointVersion(payload)" in HTML
@@ -199,7 +199,7 @@ def test_sync_list_can_be_cleared_and_the_two_cases_are_separate():
     # and the destructive one only ever removes captures it has not
     assert "removeCaptures((item) => !pcOwnsCapture(item))" in actions
     # both ask first, and the destructive one says the photo goes with it
-    assert actions.count("confirm(") == 3
+    assert actions.count("confirm(") == 4
     assert "cannot be recovered" in actions
     assert "function discardCapture(localId)" in HTML
     assert "data-discard" in HTML
@@ -424,6 +424,16 @@ def test_phone_only_report_line_has_a_confirmed_discard_control():
     assert "discardCapture(button.dataset.discardLine)" in render
 
 
+def test_pc_owned_expense_has_a_pc_delete_control_and_waits_for_confirmation():
+    panel = HTML[HTML.index("function receiptPanelHtml(line)"):]
+    panel = panel[: panel.index("async function fetchPcReceiptDataUrl")]
+    assert "Delete expense on PC" in panel
+    assert "data-delete-pc-line" in panel
+    assert "This phone copy will be removed only after the PC confirms" in HTML
+    assert "function requestPcDelete(source)" in HTML
+    assert "deleteRequested" in HTML
+
+
 def test_refresh_returns_to_the_screen_the_user_was_on():
     # Pull-to-refresh on a phone browser is a page reload, and the markup makes
     # Add expense active, so every refresh jumped there (item 10, 13/08).
@@ -525,7 +535,7 @@ def test_phone_edit_has_a_pc_ack_token_and_conflict_state():
     assert "Waiting for PC confirmation" in queue
     matching = HTML[HTML.index("function matchingPcLineIn(item, pcLines)"):]
     matching = matching[: matching.index("function pcEditAcknowledged")]
-    assert "if (item.expId) return" in matching
+    assert "const byExpenseId = pcLines.find" in matching
     assert "if (item.localId) return" in matching
 
 

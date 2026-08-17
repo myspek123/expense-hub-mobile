@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.11">
+<meta name="application-version" content="3.12">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -205,6 +205,11 @@
     border: 1px solid var(--navy); border-radius: 8px; background: #fff;
     color: var(--navy); font-size: 14px; font-weight: 700;
   }
+  .line-delete {
+    display: block; width: 100%; min-height: 44px; margin-top: 8px;
+    border: 1px solid #a32d2d; border-radius: 8px; background: #fff;
+    color: #a32d2d; font-size: 14px; font-weight: 700;
+  }
   .line-discard {
     display: block; width: 100%; min-height: 44px; margin-top: 8px;
     border: 1px solid #a32d2d; border-radius: 8px; background: #fff;
@@ -214,7 +219,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.11</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.12</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1168,6 +1173,8 @@ async function saveCapture(opts) {
     ocrManualFields: Array.from(manualFields),
     ocrFillableFields: OCR_FIELDS.filter((name) => !manualFields.has(name)),
     ocrImageHash: ocrImageHash,
+    deleteRequested: false,
+    deleteError: '',
     synced: false,
     awaitingPcUpdate: false,
     syncToken: uid()
@@ -1413,6 +1420,8 @@ function queueRowsToShow() {
 // waits for something that already happened or has not started. The PC takes a
 // separate step to pull a capture in, so the two waits are named separately.
 function queueState(item) {
+  if (item.deleteError) return { key: 'conflict', label: 'PC refused deletion' };
+  if (item.deleteRequested) return { key: 'pending', label: 'Deletion requested on PC' };
   if (!item.synced) return { key: 'pending', label: 'On this phone only' };
   // Checked before anything else: the PC saying it threw this away answers
   // the question that every other state here is still guessing at. Without
@@ -1447,7 +1456,10 @@ function matchingPcLineIn(item, pcLines) {
   if (!item) return null;
   // Once either stable identity exists, never guess by date/amount/category:
   // that guess is how a stale 47 row can be paired with a phone's 46 draft.
-  if (item.expId) return pcLines.find((line) => line.expId === item.expId) || null;
+  if (item.expId) {
+    const byExpenseId = pcLines.find((line) => line.expId === item.expId);
+    if (byExpenseId) return byExpenseId;
+  }
   if (item.localId) return pcLines.find((line) => line.localId === item.localId) || null;
   return pcLines.find((line) => pendingKey(line.date, line.amount, line.category)
     === pendingKey(item.date, item.amount, item.category)) || null;
@@ -1566,6 +1578,70 @@ function discardCapture(localId) {
   showToast('Capture discarded from this phone.');
 }
 
+function requestPcDelete(source) {
+  if (!source) return;
+  const pcLine = matchingPcLine(source);
+  const expId = source.expId || (pcLine && pcLine.expId) || '';
+  if (!expId) {
+    showToast('The PC expense id is not available yet. Sync the phone again, then try Delete on PC.', true);
+    return;
+  }
+  const line = pcLine || source;
+  const list = load();
+  let item = list.find((entry) => entry.expId === expId);
+  if (!item) {
+    const report = currentDetailReport || {};
+    item = {
+      localId: uid(),
+      expId: expId,
+      baseValues: pcEditValues(line),
+      pcEditDraft: true,
+      reportType: FLOW_TO_PHONE_TYPE[report.type] || report.type || '',
+      reportName: report.name || '',
+      reportRef: line.reportRef || currentDetailReportRef,
+      date: line.date || '',
+      category: line.category || '',
+      amount: line.amount ?? '',
+      currency: line.currency || 'EUR',
+      description: line.description || '',
+      paidWith: line.paidWith || '',
+      photos: [],
+      ocrStatus: '',
+      ocrFields: [],
+      ocrManualFields: [],
+      ocrFillableFields: OCR_FIELDS.slice(),
+      ocrImageHash: '',
+      synced: true,
+      awaitingPcUpdate: false,
+      syncToken: uid()
+    };
+    list.push(item);
+  }
+  if (item.deleteRequested) return;
+  const label = item.description || item.category || source.category || 'this expense';
+  const amount = item.amount !== '' && item.amount !== undefined
+    ? ` (${item.amount} ${item.currency || ''})`.trim()
+    : '';
+  if (!confirm(`Delete "${label}"${amount} on the PC?\n\nThe PC will move this expense and its receipt to the recycle bin. This phone copy will be removed only after the PC confirms the deletion.`)) return;
+  item.expId = expId;
+  item.baseValues = pcEditValues(line);
+  item.deleteRequested = true;
+  item.deleteError = '';
+  item.synced = false;
+  item.awaitingPcUpdate = false;
+  item.syncToken = uid();
+  try {
+    save(list);
+  } catch (error) {
+    showToast("Couldn't request that deletion on this phone (storage full).", true);
+    return;
+  }
+  updateSyncStrip();
+  renderQueue();
+  if (currentDetailReportRef) renderReportDetail();
+  attemptSync();
+}
+
 function renderQueue() {
   const list = queueRowsToShow();
   const host = document.getElementById('queue-list');
@@ -1599,6 +1675,12 @@ function renderQueue() {
     const discard = pcOwnsCapture(item)
       ? ''
       : `<button type="button" class="btn ghost small queue-discard" data-discard="${escapeHtml(item.localId)}">Discard</button>`;
+    const pcExpenseId = item.expId || ((matchingPcLine(item) || {}).expId || '');
+    const deletePc = pcOwnsCapture(item) && pcExpenseId
+      ? (item.deleteRequested
+        ? '<button type="button" class="btn ghost small" disabled>Deletion requested</button>'
+        : `<button type="button" class="btn ghost small queue-delete-pc" data-delete-pc="${escapeHtml(pcExpenseId)}">Delete on PC</button>`)
+      : '';
     const group = groupLabel(item);
     if (group !== lastGroup) {
       html += `<div class="band">${escapeHtml(group)}</div>`;
@@ -1607,7 +1689,7 @@ function renderQueue() {
     html += `
     <div class="qrow" data-open="${escapeHtml(item.localId)}" style="cursor:pointer">
       <div>${ddmmyyyy(display.date)} &middot; ${escapeHtml(display.category || 'No category')}${description} &middot; ${escapeHtml(String(display.amount ?? '0'))} ${escapeHtml(display.currency || '')}${item.sentWarning ? '<div class="hint">This report was sent on the PC. The capture stays here for 30 days.</div>' : ''}</div>
-      <span><span class="status ${state.key}">${state.label}</span>${scanStatusMarkup(item)}${discard}</span>
+      <span><span class="status ${state.key}">${state.label}</span>${scanStatusMarkup(item)}${discard}${deletePc}</span>
     </div>`;
   });
   host.innerHTML = html;
@@ -1624,6 +1706,13 @@ function renderQueue() {
     button.addEventListener('click', (event) => {
       event.stopPropagation();
       discardCapture(button.dataset.discard);
+    });
+  });
+  host.querySelectorAll('[data-delete-pc]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const item = load().find((entry) => entry.expId === button.dataset.deletePc);
+      if (item) requestPcDelete(item);
     });
   });
   renderQueueActions();
@@ -1794,7 +1883,16 @@ async function fetchReports() {
         if (pc && pc.expId && item.expId !== pc.expId) { item.expId = pc.expId; changed = true; }
         if (pc && pc.pcTakenAt && !item.pcTakenAt) { item.pcTakenAt = pc.pcTakenAt; changed = true; }
         if (pc && item.awaitingPcUpdate) {
-          if (pc.mobileEditConflict) {
+          if (item.deleteRequested && pc.deleted) {
+            item._pcDeletionConfirmed = true;
+            changed = true;
+          } else if (item.deleteRequested && pc.mobileDeleteError) {
+            item.deleteRequested = false;
+            item.deleteError = pc.mobileDeleteError;
+            item.awaitingPcUpdate = false;
+            item.baseValues = pcEditValues(pc);
+            changed = true;
+          } else if (pc.mobileEditConflict) {
             // The PC is waiting for its inline conflict decision. Keep the
             // phone request visible as pending until that decision is made.
           } else if (pcEditAcknowledged(item, pc)) {
@@ -1851,7 +1949,9 @@ async function fetchReports() {
           }
         }
       });
-      if (changed) save(queue);
+      const keptQueue = queue.filter((item) => !item._pcDeletionConfirmed);
+      keptQueue.forEach((item) => { delete item._pcDeletionConfirmed; });
+      if (changed || keptQueue.length !== queue.length) save(keptQueue);
       if (currentDetailReportRef) renderReportDetail();
       pruneQueueForSentReports();
     }
@@ -2048,7 +2148,16 @@ function receiptPanelHtml(line) {
   const discardButton = local && !pcOwnsCapture(local)
     ? `<button type="button" class="line-discard" data-discard-line="${escapeHtml(local.localId)}">Discard phone-only capture</button>`
     : '';
-  const actions = `${editButton}${discardButton}`;
+  const deleteError = (local && local.deleteError) || line.mobileDeleteError || '';
+  const deleteButton = line.expId && (!local || pcOwnsCapture(local))
+    ? (local && local.deleteRequested
+      ? '<button type="button" class="line-delete" disabled>Deletion requested on PC</button>'
+      : `<button type="button" class="line-delete" data-delete-pc-line="${escapeHtml(line.expId)}">Delete expense on PC</button>`)
+    : '';
+  const deleteMessage = deleteError
+    ? `<p class="hint">PC refused deletion: ${escapeHtml(deleteError)}</p>`
+    : '';
+  const actions = `${editButton}${deleteMessage}${deleteButton}${discardButton}`;
   if (local) {
     const shots = local.photos || [];
     if (!shots.length) {
@@ -2334,12 +2443,16 @@ function localLinesForReport() {
       ocrFields: item.ocrFields || [],
       hasReceipt: (item.photos || []).length > 0,
       ndf: false,
+      deleteRequested: Boolean(item.deleteRequested),
+      mobileDeleteError: item.deleteError || '',
       pending: true,
       // Synced means the Sheet has it; the PC still has to pull it in and push
       // its list back before it becomes a real line. Two different waits, and
       // the user can tell them apart.
-      pendingLabel: item.synced
-        ? (pcConflictFor(item) ? 'Conflict on PC' : 'Waiting for PC confirmation')
+      pendingLabel: item.deleteRequested
+        ? 'Deletion requested on PC'
+        : item.synced
+          ? (pcConflictFor(item) ? 'Conflict on PC' : 'Waiting for PC confirmation')
         : 'Not synced',
     }));
 }
@@ -2370,7 +2483,10 @@ function detailLinesForReport() {
       amount: edit.amount,
       currency: edit.currency,
       pending: true,
-      pendingLabel: line.mobileEditConflict ? 'Conflict on PC' : 'Waiting for PC confirmation',
+      pendingLabel: edit.deleteRequested
+        ? 'Deletion requested on PC'
+        : (line.mobileEditConflict ? 'Conflict on PC' : 'Waiting for PC confirmation'),
+      mobileDeleteError: edit.deleteError || line.mobileDeleteError || '',
       hasReceipt: line.hasReceipt
     });
   }).filter(Boolean);
@@ -2501,6 +2617,13 @@ function renderReportDetail() {
       discardCapture(button.dataset.discardLine);
       openDetailLine = '';
       renderReportDetail();
+    });
+  });
+  document.querySelectorAll('#report-detail-lines [data-delete-pc-line]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const line = all.find((item) => item.expId === button.dataset.deletePcLine);
+      if (line) requestPcDelete(line);
     });
   });
   document.querySelectorAll('#report-detail-lines .receipt-preview').forEach((image) => {

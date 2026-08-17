@@ -1,5 +1,5 @@
 // Expense Hub Mobile -- Apps Script Web App
-// VERSION 1.15
+// VERSION 1.16
 // Paste this whole file into Extensions > Apps Script on the Google Sheet
 // created for mobile capture. Deploy > Manage deployments > edit (pencil)
 // > Version: New version > Deploy, so the URL you already pasted into the
@@ -7,7 +7,7 @@
 //
 // After redeploying, open the Web App URL directly in a browser (paste the
 // same URL from the phone's Settings field into any browser address bar).
-// The JSON response includes "version":"1.15" -- if it still says an older
+// The JSON response includes "version":"1.16" -- if it still says an older
 // number, the redeploy did not actually take and that is the bug, not the
 // code below.
 //
@@ -26,7 +26,7 @@
 // Timestamp | LocalId | ReportType | ReportName | Date | Category |
 // Amount | Currency | Description | PaidWith | PhotoUrls | ReportRef |
 // OcrStatus | OcrFields | OcrImageHash | OcrManualFields | ExpId | BaseValues |
-// SyncToken
+// SyncToken | DeleteRequested
 // (ReportRef added 2026-08-01: which real PC report, if any, the phone
 // picked from PCReports -- blank means free-typed, unfiled on the PC side.)
 // (MobileEditToken added 2026-08-17: one token per phone edit, so the phone
@@ -43,13 +43,13 @@
 // EXP_ID | REPORT_REF | DATE | CATEGORY | DESCRIPTION | PAID_WITH | AMOUNT |
 // CURRENCY | HAS_RECEIPT | NDF | REJECTED | REJECTED_NOTE | LOCAL_ID |
 // PC_TAKEN_AT | OCR_FIELDS | DELETED | RECEIPT_FILE | MOBILE_EDIT_CONFLICT |
-// EUR_AMOUNT | EUR_ESTIMATED | MOBILE_EDIT_TOKEN
+// EUR_AMOUNT | EUR_ESTIMATED | MOBILE_EDIT_TOKEN | MOBILE_DELETE_ERROR
 // Written only by expense_hub/mobile_push.py, delete-then-rewrite on every
 // push. Every Draft report's lines are sent so an older line cannot silently
 // stay on the PC only. Never edited here by
 // hand.
 
-var VERSION = '1.15';
+var VERSION = '1.16';
 var SHEET_NAME = 'MobileCaptures';
 var PC_REPORTS_SHEET_NAME = 'PCReports';
 var PC_EXPENSES_SHEET_NAME = 'PCExpenses';
@@ -102,7 +102,8 @@ function doPost(e) {
       Array.isArray(data.ocrManualFields) ? data.ocrManualFields.join(',') : (data.ocrManualFields || ''),
       data.expId || '',
       data.baseValues ? JSON.stringify(data.baseValues) : '',
-      data.syncToken || ''
+      data.syncToken || '',
+      data.deleteRequested ? 1 : 0
     ];
 
     // A phone can re-send a localId it already sent once, either as a
@@ -157,7 +158,7 @@ function doPushExpenses_(data) {
   var sheet = getOrCreatePCExpensesSheet();
   var expenses = data.expenses || [];
   if (sheet.getLastRow() > 1) {
-    sheet.getRange(2, 1, sheet.getLastRow() - 1, 21).clearContent();
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, 22).clearContent();
   }
   var rows = expenses.map(function(x) {
     return [
@@ -168,11 +169,11 @@ function doPushExpenses_(data) {
       Array.isArray(x.ocrFields) ? x.ocrFields.join(',') : (x.ocrFields || ''),
       x.deleted ? 1 : 0, x.receiptFile || '', x.mobileEditConflict || '',
       x.eurAmount === undefined || x.eurAmount === null ? '' : x.eurAmount,
-      x.eurEstimated ? 1 : 0, x.mobileEditToken || ''
+      x.eurEstimated ? 1 : 0, x.mobileEditToken || '', x.mobileDeleteError || ''
     ];
   });
   if (rows.length) {
-    sheet.getRange(2, 1, rows.length, 21).setValues(rows);
+    sheet.getRange(2, 1, rows.length, 22).setValues(rows);
   }
   return respond({ ok: true, received: rows.length });
 }
@@ -259,9 +260,9 @@ function exportCaptures() {
   var sheet = getOrCreateSheet();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  // 19 columns. This reads the phone's own MobileCaptures sheet, which is a
+  // 20 columns. This reads the phone's own MobileCaptures sheet, which is a
   // different shape from PCExpenses -- the edit request fields are last.
-  var values = sheet.getRange(2, 1, lastRow - 1, 19).getValues();
+  var values = sheet.getRange(2, 1, lastRow - 1, 20).getValues();
   var out = [];
   values.forEach(function(row) {
     var localId = row[1];
@@ -285,7 +286,8 @@ function exportCaptures() {
       ocrManualFields: row[15] || '',
       expId: row[16] || '',
       baseValues: row[17] || '',
-      syncToken: row[18] || ''
+      syncToken: row[18] || '',
+      deleteRequested: row[19] === 1 || row[19] === true
     });
   });
   return out;
@@ -341,7 +343,7 @@ function listPCExpenses() {
   var sheet = getOrCreatePCExpensesSheet();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  var values = sheet.getRange(2, 1, lastRow - 1, 21).getValues();
+  var values = sheet.getRange(2, 1, lastRow - 1, 22).getValues();
   var out = [];
   values.forEach(function(row) {
     var isDeleted = row[15] === 1 || row[15] === true;
@@ -362,7 +364,8 @@ function listPCExpenses() {
       mobileEditConflict: row[17] || '',
       eurAmount: row[18] || '',
       eurEstimated: row[19] === 1 || row[19] === true,
-      mobileEditToken: row[20] || ''
+      mobileEditToken: row[20] || '',
+      mobileDeleteError: row[21] || ''
     });
   });
   return out;
@@ -377,7 +380,8 @@ function getOrCreatePCExpensesSheet() {
       'EXP_ID', 'REPORT_REF', 'DATE', 'CATEGORY', 'DESCRIPTION', 'PAID_WITH',
       'AMOUNT', 'CURRENCY', 'HAS_RECEIPT', 'NDF', 'REJECTED', 'REJECTED_NOTE',
       'LOCAL_ID', 'PC_TAKEN_AT', 'OCR_FIELDS', 'DELETED', 'RECEIPT_FILE',
-      'MOBILE_EDIT_CONFLICT', 'EUR_AMOUNT', 'EUR_ESTIMATED', 'MOBILE_EDIT_TOKEN'
+      'MOBILE_EDIT_CONFLICT', 'EUR_AMOUNT', 'EUR_ESTIMATED', 'MOBILE_EDIT_TOKEN',
+      'MOBILE_DELETE_ERROR'
     ]);
   } else if (String(sheet.getRange(1, 11).getValue()) !== 'REJECTED'
       || String(sheet.getRange(1, 15).getValue()) !== 'OCR_FIELDS'
@@ -386,12 +390,14 @@ function getOrCreatePCExpensesSheet() {
       || String(sheet.getRange(1, 18).getValue()) !== 'MOBILE_EDIT_CONFLICT'
       || String(sheet.getRange(1, 19).getValue()) !== 'EUR_AMOUNT'
       || String(sheet.getRange(1, 20).getValue()) !== 'EUR_ESTIMATED'
-      || String(sheet.getRange(1, 21).getValue()) !== 'MOBILE_EDIT_TOKEN') {
-    sheet.getRange(1, 1, 1, 21).setValues([[
+      || String(sheet.getRange(1, 21).getValue()) !== 'MOBILE_EDIT_TOKEN'
+      || String(sheet.getRange(1, 22).getValue()) !== 'MOBILE_DELETE_ERROR') {
+    sheet.getRange(1, 1, 1, 22).setValues([[
       'EXP_ID', 'REPORT_REF', 'DATE', 'CATEGORY', 'DESCRIPTION', 'PAID_WITH',
       'AMOUNT', 'CURRENCY', 'HAS_RECEIPT', 'NDF', 'REJECTED', 'REJECTED_NOTE',
       'LOCAL_ID', 'PC_TAKEN_AT', 'OCR_FIELDS', 'DELETED', 'RECEIPT_FILE',
-      'MOBILE_EDIT_CONFLICT', 'EUR_AMOUNT', 'EUR_ESTIMATED', 'MOBILE_EDIT_TOKEN'
+      'MOBILE_EDIT_CONFLICT', 'EUR_AMOUNT', 'EUR_ESTIMATED', 'MOBILE_EDIT_TOKEN',
+      'MOBILE_DELETE_ERROR'
     ]]);
   }
   return sheet;
@@ -405,7 +411,7 @@ function getOrCreateSheet() {
     sheet.appendRow([
       'Timestamp', 'LocalId', 'ReportType', 'ReportName', 'Date',
       'Category', 'Amount', 'Currency', 'Description', 'PaidWith', 'PhotoUrls', 'ReportRef',
-      'OcrStatus', 'OcrFields', 'OcrImageHash', 'OcrManualFields', 'ExpId', 'BaseValues', 'SyncToken'
+      'OcrStatus', 'OcrFields', 'OcrImageHash', 'OcrManualFields', 'ExpId', 'BaseValues', 'SyncToken', 'DeleteRequested'
     ]);
     return sheet;
   }
@@ -415,8 +421,8 @@ function getOrCreateSheet() {
   if (String(sheet.getRange(1, 12).getValue()) !== 'ReportRef') {
     sheet.getRange(1, 12).setValue('ReportRef');
   }
-  sheet.getRange(1, 13, 1, 7).setValues([[
-    'OcrStatus', 'OcrFields', 'OcrImageHash', 'OcrManualFields', 'ExpId', 'BaseValues', 'SyncToken'
+  sheet.getRange(1, 13, 1, 8).setValues([[
+    'OcrStatus', 'OcrFields', 'OcrImageHash', 'OcrManualFields', 'ExpId', 'BaseValues', 'SyncToken', 'DeleteRequested'
   ]]);
   return sheet;
 }
