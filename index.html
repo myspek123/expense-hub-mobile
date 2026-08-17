@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.6">
+<meta name="application-version" content="3.7">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -208,7 +208,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.6</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.7</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1300,6 +1300,17 @@ function openForEdit(localId) {
       paidWith: pc.paidWith ?? item.paidWith,
     })
     : item;
+  if (pc && !item.awaitingPcUpdate) {
+    // The edit form is showing the PC's current line. Make that line the
+    // conflict baseline before the phone creates its next request; otherwise
+    // a legitimate edit after a PC edit is falsely reported as a clash.
+    item.baseValues = pcEditValues(pc);
+    const baselineIndex = list.findIndex((entry) => entry.localId === localId);
+    if (baselineIndex >= 0) {
+      list[baselineIndex] = item;
+      save(list);
+    }
+  }
   clearForm();
   editingLocalId = localId;
   document.getElementById('edit-banner').style.display = 'flex';
@@ -1747,11 +1758,12 @@ async function fetchReports() {
             item.awaitingPcUpdate = false;
             item.baseValues = pcEditValues(pc);
             changed = true;
-          } else if (pcLineMatchesLocalExceptReport(item, pc)) {
+          } else if (pcLineMatchesLocalExceptReport(item, pc)
+              || pcLineMatchesBase(item, pc)) {
             // The PCExpenses response can still be the old report snapshot:
-            // the PC has not pulled the phone's report move yet. Keep the
-            // phone's pending destination instead of treating that stale
-            // report reference as a PC-side decision.
+            // the PC has not pulled the phone's edit yet. Keep the phone's
+            // pending values instead of treating that stale response as a
+            // PC-side decision.
           } else {
             // The PC chose its own version. The phone is a capture device, so
             // the PC's values now replace the pending local request.
@@ -1794,12 +1806,23 @@ function pcLineMatchesLocal(item, pc) {
 }
 
 function pcLineMatchesLocalExceptReport(item, pc) {
-  return String(pc.date ?? '').slice(0, 10) === String(item.date ?? '').slice(0, 10)
-    && amountKey(pc.amount) === amountKey(item.amount)
-    && String(pc.currency ?? '').trim().toUpperCase() === String(item.currency ?? '').trim().toUpperCase()
-    && String(pc.category ?? '').trim() === String(item.category ?? '').trim()
-    && String(pc.description ?? '').trim() === String(item.description ?? '').trim()
-    && String(pc.paidWith ?? '').trim() === String(item.paidWith ?? '').trim();
+  return pcLineMatchesValues(item, pc);
+}
+
+function pcLineMatchesValues(values, pc) {
+  return String(pc.date ?? '').slice(0, 10) === String(values.date ?? '').slice(0, 10)
+    && amountKey(pc.amount) === amountKey(values.amount)
+    && String(pc.currency ?? '').trim().toUpperCase() === String(values.currency ?? '').trim().toUpperCase()
+    && String(pc.category ?? '').trim() === String(values.category ?? '').trim()
+    && String(pc.description ?? '').trim() === String(values.description ?? '').trim()
+    && String(pc.paidWith ?? '').trim() === String(values.paidWith ?? '').trim();
+}
+
+function pcLineMatchesBase(item, pc) {
+  const base = item && item.baseValues;
+  if (!base || typeof base !== 'object') return false;
+  return pcLineMatchesValues(base, pc)
+    && String(pc.reportRef ?? '').trim() === String(base.reportRef ?? '').trim();
 }
 
 // Maps a PC flow code back to the phone's own type label where one exists
