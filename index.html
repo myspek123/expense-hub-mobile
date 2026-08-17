@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.10">
+<meta name="application-version" content="3.11">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -205,11 +205,16 @@
     border: 1px solid var(--navy); border-radius: 8px; background: #fff;
     color: var(--navy); font-size: 14px; font-weight: 700;
   }
+  .line-discard {
+    display: block; width: 100%; min-height: 44px; margin-top: 8px;
+    border: 1px solid #a32d2d; border-radius: 8px; background: #fff;
+    color: #a32d2d; font-size: 14px; font-weight: 700;
+  }
 </style>
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.10</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.11</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -2035,13 +2040,22 @@ function receiptPanelHtml(line) {
     : line.expId
       ? `<button type="button" class="line-edit" data-edit-pc="${escapeHtml(line.expId)}">Review expense</button>`
       : '';
+  // A phone-only line is a local queue item, not a PC expense. It needs a
+  // direct way out here because opening it from a report used to offer only
+  // Review, leaving a wrong pending amount such as 47 beside the real PC
+  // amount 46 with no way to remove the phone copy. Reuse discardCapture so
+  // its confirmation names the loss and its PC-ownership guard still applies.
+  const discardButton = local && !pcOwnsCapture(local)
+    ? `<button type="button" class="line-discard" data-discard-line="${escapeHtml(local.localId)}">Discard phone-only capture</button>`
+    : '';
+  const actions = `${editButton}${discardButton}`;
   if (local) {
     const shots = local.photos || [];
     if (!shots.length) {
       if (line.hasReceipt) {
-        return `<div class="exdetail">${meta}${editButton}</div>`;
+        return `<div class="exdetail">${meta}${actions}</div>`;
       }
-      return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p>${editButton}</div>`;
+      return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p>${actions}</div>`;
     }
     // A queued photo is stored as { base64, name } by the capture screen, not
     // as a bare data-URL string. Mapping the object straight into src= gave
@@ -2056,12 +2070,12 @@ function receiptPanelHtml(line) {
       }
       return `<img class="receipt-preview" src="${escapeHtml(src)}" alt="Receipt">`;
     }).join('');
-    return `<div class="exdetail">${meta}${images}${editButton}</div>`;
+    return `<div class="exdetail">${meta}${images}${actions}</div>`;
   }
   if (!line.hasReceipt) {
-    return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p>${editButton}</div>`;
+    return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p>${actions}</div>`;
   }
-  return `<div class="exdetail">${meta}${editButton}</div>`;
+  return `<div class="exdetail">${meta}${actions}</div>`;
 }
 
 // A PC receipt is fetched only for the one expense being edited and only into
@@ -2479,6 +2493,14 @@ function renderReportDetail() {
       event.stopPropagation();
       const line = all.find((item) => item.expId === button.dataset.editPc);
       if (line) startPcExpenseEdit(line);
+    });
+  });
+  document.querySelectorAll('#report-detail-lines [data-discard-line]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      discardCapture(button.dataset.discardLine);
+      openDetailLine = '';
+      renderReportDetail();
     });
   });
   document.querySelectorAll('#report-detail-lines .receipt-preview').forEach((image) => {
