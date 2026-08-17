@@ -28,10 +28,16 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.1"' in HTML
-    assert '>v3.1</span>' in HTML
+    assert 'content="3.2"' in HTML
+    assert '>v3.2</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v21" in service_worker
+    assert "eh-mobile-v22" in service_worker
+    app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
+    assert "var VERSION = '1.13';" in app_script
+    assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
+    assert 'id="script-version"' in HTML
+    assert "function rememberEndpointVersion(payload)" in HTML
+    assert "deployedScriptVersion = 'unknown'" in HTML
 
 
 # -- 2026-08-16 evening: what the first real gallery run turned up ----------
@@ -161,6 +167,9 @@ def test_capture_thumbnails_open_the_receipt_full_size():
     strip = strip[: strip.index("document.getElementById('f-photo')")]
     assert "host.querySelectorAll('img.attach-thumb')" in strip
     assert "openReceiptLightbox(image.src)" in strip
+    assert "loadPcReceiptForEdit()" in HTML
+    assert "editingPcReceiptDataUrl" in strip
+    assert "View receipt on PC" not in HTML
     # the remove x must never double as the viewer: the listener is on the
     # image itself, not on the wrapper both controls share
     assert "querySelectorAll('.attach-thumb-wrap')" not in strip
@@ -186,19 +195,22 @@ def test_sync_list_can_be_cleared_and_the_two_cases_are_separate():
     actions = HTML[HTML.index("function renderQueueActions()") :]
     actions = actions[: actions.index("function renderQueue()")]
     # the safe button only ever removes captures the PC has
-    assert "removeCaptures((item) => item.synced)" in actions
+    assert "removeCaptures((item) => pcOwnsCapture(item))" in actions
     # and the destructive one only ever removes captures it has not
-    assert "removeCaptures((item) => !item.synced)" in actions
+    assert "removeCaptures((item) => !pcOwnsCapture(item))" in actions
     # both ask first, and the destructive one says the photo goes with it
-    assert actions.count("confirm(") == 2
+    assert actions.count("confirm(") == 3
     assert "cannot be recovered" in actions
+    assert "function discardCapture(localId)" in HTML
+    assert "data-discard" in HTML
+    assert "The PC already has this capture" in HTML
 
 
 def test_clearing_keeps_every_other_capture():
     remove = HTML[HTML.index("function removeCaptures(predicate)") :]
     remove = remove[: remove.index("function renderQueueActions()")]
     # filter out the matches, save the rest -- never a blanket wipe of the store
-    assert "load().filter((item) => !predicate(item))" in remove
+    assert "load().filter((item) => !predicate(item) || pcOwnsCapture(item))" in remove
     assert "save(kept)" in remove
 
 
@@ -313,6 +325,9 @@ def test_a_rejected_line_is_visible_on_the_phone_too():
     assert "rejected-pill" in HTML
     assert ".exrow.is-rejected .amt" in HTML
     assert "const rejectedTotal = rejectedLines.reduce(" in HTML
+    assert "function reportEurAmount(line)" in HTML
+    assert "function reportLineAmountHtml(line)" in HTML
+    assert "missingEurCount" in HTML
     push = (
         Path(r"C:\Users\2simp\expense-hub") / "expense_hub" / "mobile_push.py"
     )
@@ -471,6 +486,9 @@ def test_corrected_pc_line_keeps_the_phone_receipt_by_local_id():
     assert "pcReceiptHtml(line)" in panel
     assert "data-view-receipt" in panel
     assert "action=receipt&name=" in panel
+    assert "Review expense" in panel
+    assert "isLtiReport" in panel
+    assert "const reportReceipt = isLtiReport ? '' : pcReceiptHtml(line);" in panel
 
 
 def test_pc_corrected_values_are_used_by_the_edit_form():
@@ -480,6 +498,7 @@ def test_pc_corrected_values_are_used_by_the_edit_form():
     assert "const source = pc && !item.awaitingPcUpdate" in edit
     assert "amount: pc.amount ?? item.amount" in edit
     assert "document.getElementById('f-amount').value = source.amount || '';" in edit
+    assert "reportRef: line.reportRef || ''" in HTML
 
 
 def test_sync_rows_are_grouped_by_report_type_and_name():

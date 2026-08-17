@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.1">
+<meta name="application-version" content="3.2">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -20,6 +20,7 @@
   header { background: var(--navy); color: #fff; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; }
   header h1 { margin: 0; font-size: 17px; font-weight: 600; }
   .app-version { color: #dce6f5; font-size: 11px; font-weight: 700; }
+  .version-stack { display: flex; align-items: center; gap: 8px; }
   #sync-strip { padding: 8px 16px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
   #sync-strip.pending { background: var(--amber-bg); color: var(--amber); }
   #sync-strip.ok { background: var(--green-bg); color: var(--green); }
@@ -93,6 +94,7 @@
   .btn.ghost { background: #fff; color: var(--navy); }
   .btn.quick { border-color: var(--amber); color: #8a5711; background: #fffaf0; }
   .btn.small { flex: none; height: 40px; padding: 0 14px; font-size: 13px; }
+  .queue-discard { margin-left: 8px; }
   #toast { position: fixed; left: 16px; right: 16px; bottom: 76px; padding: 10px 14px; border-radius: 8px; font-size: 13px; z-index: 30; display: none; }
   /* Amber, not red. Almost everything this toast says is information ("nothing
      was waiting to send"), and red reads as something broke. The user made the
@@ -145,6 +147,8 @@
   .detail-total { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; background: #eef2fa; border-radius: 8px; padding: 10px 12px; margin: 8px 0 10px; font-size: 14px; font-weight: 700; }
   .detail-total > span:nth-child(even) { text-align: right; font-variant-numeric: tabular-nums; }
   .detail-total .detail-rejected { color: var(--danger); }
+  .detail-total .detail-missing-eur { color: var(--amber); font-size: 11px; font-weight: 600; }
+  .detail-paid-eur { color: var(--muted); font-size: 11px; }
   .rejected-pill { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: #fbd4d1; color: #8f231d; white-space: nowrap; }
   .exrow .rejected-why { color: #8f231d; margin-top: 2px; }
   .exrow.is-rejected .amt { color: #8f231d; text-decoration: line-through; }
@@ -202,7 +206,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="app-version">v3.1</span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.2</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -427,11 +431,32 @@ let editingLocalId = null;
 // can offer it. Empty when this phone took its own photo, or when the PC has
 // not pushed since the sync script gained RECEIPT_FILE.
 let editingPcReceiptFile = '';
+let editingPcReceiptDataUrl = '';
+let editingPcReceiptLoading = false;
+let editingPcReceiptError = '';
 let selectedReportRef = '';
 let manualFields = new Set();
 let photoDirty = false;
 const OCR_FIELDS = ['AMOUNT', 'DATE', 'CURRENCY', 'CATEGORY'];
 const TEST_OFFLINE = new URLSearchParams(location.search).get('offline') === '1';
+let deployedScriptVersion = 'unknown';
+
+function renderDeployedScriptVersion() {
+  const host = document.getElementById('script-version');
+  if (host) host.textContent = `Apps Script ${deployedScriptVersion || 'unknown'}`;
+}
+
+function rememberEndpointVersion(payload) {
+  deployedScriptVersion = payload && payload.version
+    ? String(payload.version)
+    : 'unknown';
+  renderDeployedScriptVersion();
+}
+
+function markScriptVersionUnknown() {
+  deployedScriptVersion = 'unknown';
+  renderDeployedScriptVersion();
+}
 
 function getSyncCode() { return localStorage.getItem(CODE_KEY) || ''; }
 function isOnline() { return !TEST_OFFLINE && navigator.onLine; }
@@ -789,18 +814,33 @@ function renderAttachStrip() {
   host.querySelectorAll('img.attach-thumb').forEach((image) => {
     image.addEventListener('click', () => openReceiptLightbox(image.src));
   });
-  // The PC's copy of the receipt, on the screen where the expense is edited.
-  // Viewing it from the report was not the point: the reason to look at a
-  // receipt is to correct the amount, the currency or the date against it, and
-  // that happens here (user, 17/08/2026). Shown only when this phone has no
-  // photo of its own, because then the PC's is the only one there is.
+  // The PC's copy is fetched when the edit screen opens and held only in this
+  // page's memory. It is deliberately not added to the local capture object:
+  // a camera photo already exhausted localStorage once, and the PC receipt is
+  // not the phone's capture.
   if (!photos.length && editingPcReceiptFile) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'btn ghost small';
-    button.textContent = 'View receipt on PC';
-    button.addEventListener('click', () => openPcReceipt(editingPcReceiptFile, button));
-    host.appendChild(button);
+    if (editingPcReceiptDataUrl) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'attach-thumb-wrap';
+      const image = document.createElement('img');
+      image.className = 'attach-thumb';
+      image.alt = 'Receipt';
+      image.src = editingPcReceiptDataUrl;
+      image.addEventListener('click', () => openReceiptLightbox(image.src));
+      wrapper.appendChild(image);
+      host.appendChild(wrapper);
+    } else if (editingPcReceiptLoading) {
+      const loading = document.createElement('div');
+      loading.className = 'attach-thumb';
+      loading.style.cssText = 'display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--muted)';
+      loading.textContent = '...';
+      host.appendChild(loading);
+    } else if (editingPcReceiptError) {
+      const hint = document.createElement('p');
+      hint.className = 'hint';
+      hint.textContent = editingPcReceiptError;
+      host.appendChild(hint);
+    }
   }
 }
 
@@ -883,6 +923,9 @@ document.addEventListener('click', (e) => {
 function clearForm() {
   editingLocalId = null;
   editingPcReceiptFile = '';
+  editingPcReceiptDataUrl = '';
+  editingPcReceiptLoading = false;
+  editingPcReceiptError = '';
   selectedReportRef = '';
   manualFields = new Set();
   photoDirty = false;
@@ -1280,6 +1323,7 @@ function openForEdit(localId) {
   renderScanMarks(item.ocrFields || []);
   renderCaptureScanStatus(item);
   renderAttachStrip();
+  if (!photos.length && editingPcReceiptFile) loadPcReceiptForEdit();
   document.querySelector('nav button[data-tab="capture"]').click();
 }
 
@@ -1387,6 +1431,15 @@ function syncDisplayValues(item) {
   });
 }
 
+function pcOwnsCapture(item) {
+  if (!item) return false;
+  if (item.pcTakenAt) return true;
+  return getCachedExpenses().some((line) =>
+    (item.expId && line.expId === item.expId)
+      || (item.localId && line.localId === item.localId)
+  );
+}
+
 // Clearing this list by hand, added 2026-08-15. Nothing here ever deleted a
 // capture, which is right as a default -- a capture with no report is a job
 // still to do. But it left no way at all to get rid of rows that are finished
@@ -1399,7 +1452,7 @@ function syncDisplayValues(item) {
 // here loses nothing. A capture that was never sent exists ONLY on this phone,
 // so its receipt goes with it -- that one gets its own button and says so.
 function removeCaptures(predicate) {
-  const kept = load().filter((item) => !predicate(item));
+  const kept = load().filter((item) => !predicate(item) || pcOwnsCapture(item));
   save(kept);
   renderQueue();
   updateSyncStrip();
@@ -1409,14 +1462,14 @@ function renderQueueActions() {
   const host = document.getElementById('queue-actions');
   if (!host) return;
   const all = load();
-  const onPc = all.filter((item) => item.synced);
-  const phoneOnly = all.filter((item) => !item.synced);
+  const onPc = all.filter((item) => pcOwnsCapture(item));
+  const phoneOnly = all.filter((item) => !pcOwnsCapture(item));
   let html = '';
   if (onPc.length) {
     html += `<button type="button" class="btn ghost" id="clear-synced">Remove ${onPc.length} the PC already has</button>`;
   }
   if (phoneOnly.length) {
-    html += `<button type="button" class="btn ghost danger" id="clear-phone-only">Remove ${phoneOnly.length} never sent to the PC</button>`;
+    html += `<button type="button" class="btn ghost" id="clear-phone-only">Remove ${phoneOnly.length} not yet imported by the PC</button>`;
   }
   host.innerHTML = html;
 
@@ -1424,16 +1477,38 @@ function renderQueueActions() {
   if (synced) {
     synced.addEventListener('click', () => {
       if (!confirm(`Remove ${onPc.length} capture(s) from this list?\n\nThe PC already has them, so nothing is lost. Anything still marked "On this phone only" stays.`)) return;
-      removeCaptures((item) => item.synced);
+      removeCaptures((item) => pcOwnsCapture(item));
     });
   }
   const local = document.getElementById('clear-phone-only');
   if (local) {
     local.addEventListener('click', () => {
-      if (!confirm(`Remove ${phoneOnly.length} capture(s) that were NEVER sent to the PC?\n\nThey exist only on this phone. Their photos go with them and cannot be recovered.`)) return;
-      removeCaptures((item) => !item.synced);
+      if (!confirm(`Remove ${phoneOnly.length} capture(s) not yet imported by the PC?\n\nThey exist only in this phone queue. Their photos go with them and cannot be recovered.`)) return;
+      removeCaptures((item) => !pcOwnsCapture(item));
     });
   }
+}
+
+function discardCapture(localId) {
+  const list = load();
+  const item = list.find((entry) => entry.localId === localId);
+  if (!item) return;
+  if (pcOwnsCapture(item)) {
+    showToast('The PC already has this capture. It cannot be discarded here.', true);
+    renderQueue();
+    return;
+  }
+  const label = item.description || item.category
+    || (item.amount ? `${item.amount} ${item.currency || ''}`.trim() : 'capture with no amount');
+  const loss = item.photos && item.photos.length
+    ? 'Its receipt photo will be lost from this phone.'
+    : 'This phone-only capture will be lost.';
+  if (!confirm(`Discard "${label}"?\n\n${loss} It has not been imported by the PC.`)) return;
+  save(list.filter((entry) => entry.localId !== localId));
+  if (editingLocalId === localId) clearForm();
+  renderQueue();
+  updateSyncStrip();
+  showToast('Capture discarded from this phone.');
 }
 
 function renderQueue() {
@@ -1466,6 +1541,9 @@ function renderQueue() {
     const state = queueState(item);
     const display = syncDisplayValues(item);
     const description = display.description ? ' · ' + escapeHtml(display.description) : '';
+    const discard = pcOwnsCapture(item)
+      ? ''
+      : `<button type="button" class="btn ghost small queue-discard" data-discard="${escapeHtml(item.localId)}">Discard</button>`;
     const group = groupLabel(item);
     if (group !== lastGroup) {
       html += `<div class="band">${escapeHtml(group)}</div>`;
@@ -1474,7 +1552,7 @@ function renderQueue() {
     html += `
     <div class="qrow" data-open="${escapeHtml(item.localId)}" style="cursor:pointer">
       <div>${ddmmyyyy(display.date)} &middot; ${escapeHtml(display.category || 'No category')}${description} &middot; ${escapeHtml(String(display.amount ?? '0'))} ${escapeHtml(display.currency || '')}${item.sentWarning ? '<div class="hint">This report was sent on the PC. The capture stays here for 30 days.</div>' : ''}</div>
-      <span><span class="status ${state.key}">${state.label}</span>${scanStatusMarkup(item)}</span>
+      <span><span class="status ${state.key}">${state.label}</span>${scanStatusMarkup(item)}${discard}</span>
     </div>`;
   });
   host.innerHTML = html;
@@ -1485,6 +1563,12 @@ function renderQueue() {
     button.addEventListener('click', (event) => {
       event.stopPropagation();
       retryScan(button.dataset.scanRetry);
+    });
+  });
+  host.querySelectorAll('[data-discard]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      discardCapture(button.dataset.discard);
     });
   });
   renderQueueActions();
@@ -1520,11 +1604,13 @@ async function attemptSync(userAsked) {
   if (syncInFlight) return;
   const url = localStorage.getItem(URL_KEY);
   if (!url) {
+    markScriptVersionUnknown();
     if (userAsked) showToast('No sync URL yet. Paste it in Settings first.');
     updateSyncStrip();
     return;
   }
   if (!isOnline()) {
+    markScriptVersionUnknown();
     if (userAsked) showToast('This phone is offline. Nothing was sent.');
     updateSyncStrip();
     return;
@@ -1542,6 +1628,7 @@ async function attemptSync(userAsked) {
         const payload = Object.assign({}, item, { code: getSyncCode() });
         const res = await fetch(url, { method: 'POST', body: JSON.stringify(payload) });
         const json = await res.json();
+        rememberEndpointVersion(json);
         if (json.ok) {
           item.synced = true;
           item.awaitingPcUpdate = true;
@@ -1607,22 +1694,30 @@ function getCachedExpenses() {
 
 async function fetchReports() {
   const url = localStorage.getItem(URL_KEY);
-  if (!url || !isOnline()) return;
+  if (!url || !isOnline()) {
+    markScriptVersionUnknown();
+    return;
+  }
   const code = getSyncCode();
   const codePart = code ? '&code=' + encodeURIComponent(code) : '';
   try {
     const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'action=reports' + codePart);
     const json = await res.json();
+    rememberEndpointVersion(json);
     if (json.ok) {
       reconcileLocalReports(json.reports || []);
       localStorage.setItem(REPORTS_CACHE_KEY, JSON.stringify(json.reports || []));
       renderReports();
       pruneQueueForSentReports();
     }
-  } catch (e) { /* offline or endpoint not updated yet -- reports tab just stays on last cache */ }
+  } catch (e) {
+    markScriptVersionUnknown();
+    /* offline or endpoint not updated yet -- reports tab just stays on last cache */
+  }
   try {
     const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'action=expenses' + codePart);
     const json = await res.json();
+    rememberEndpointVersion(json);
     if (json.ok) {
       const expenses = json.expenses || [];
       localStorage.setItem(EXPENSES_CACHE_KEY, JSON.stringify(expenses));
@@ -1651,6 +1746,12 @@ async function fetchReports() {
             item.currency = pc.currency ?? item.currency;
             item.description = pc.description ?? item.description;
             item.paidWith = pc.paidWith ?? item.paidWith;
+            item.reportRef = pc.reportRef ?? item.reportRef;
+            const pcReport = getCachedReports().find((report) => report.reportRef === item.reportRef);
+            if (pcReport) {
+              item.reportName = pcReport.name || item.reportName;
+              item.reportType = FLOW_TO_PHONE_TYPE[pcReport.type] || pcReport.type || item.reportType;
+            }
             item.baseValues = pcEditValues(pc);
             item.awaitingPcUpdate = false;
             changed = true;
@@ -1661,7 +1762,10 @@ async function fetchReports() {
       if (currentDetailReportRef) renderReportDetail();
       pruneQueueForSentReports();
     }
-  } catch (e) { /* same as above -- detail screen just stays on last cache */ }
+  } catch (e) {
+    markScriptVersionUnknown();
+    /* same as above -- detail screen just stays on last cache */
+  }
 }
 
 function amountKey(value) {
@@ -1675,7 +1779,8 @@ function pcLineMatchesLocal(item, pc) {
     && String(pc.currency ?? '').trim().toUpperCase() === String(item.currency ?? '').trim().toUpperCase()
     && String(pc.category ?? '').trim() === String(item.category ?? '').trim()
     && String(pc.description ?? '').trim() === String(item.description ?? '').trim()
-    && String(pc.paidWith ?? '').trim() === String(item.paidWith ?? '').trim();
+    && String(pc.paidWith ?? '').trim() === String(item.paidWith ?? '').trim()
+    && String(pc.reportRef ?? '').trim() === String(item.reportRef ?? '').trim();
 }
 
 // Maps a PC flow code back to the phone's own type label where one exists
@@ -1789,16 +1894,18 @@ function receiptPanelHtml(line) {
   if (line.paidWith) bits.push('Paid with ' + escapeHtml(line.paidWith));
   const meta = bits.length ? `<div class="kv">${bits.join(' &middot; ')}</div>` : '';
   const local = localCaptureFor(line);
+  const isLtiReport = String((currentDetailReport && currentDetailReport.type) || '').toUpperCase() === 'LTI';
+  const reportReceipt = isLtiReport ? '' : pcReceiptHtml(line);
   const editButton = local
-    ? `<button type="button" class="line-edit" data-edit-line="${escapeHtml(local.localId)}">Edit this expense</button>`
+    ? `<button type="button" class="line-edit" data-edit-line="${escapeHtml(local.localId)}">Review expense</button>`
     : line.expId
-      ? `<button type="button" class="line-edit" data-edit-pc="${escapeHtml(line.expId)}">Edit this expense</button>`
+      ? `<button type="button" class="line-edit" data-edit-pc="${escapeHtml(line.expId)}">Review expense</button>`
       : '';
   if (local) {
     const shots = local.photos || [];
     if (!shots.length) {
       if (line.hasReceipt) {
-        return `<div class="exdetail">${meta}${pcReceiptHtml(line)}${editButton}</div>`;
+        return `<div class="exdetail">${meta}${reportReceipt}${editButton}</div>`;
       }
       return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p>${editButton}</div>`;
     }
@@ -1820,18 +1927,17 @@ function receiptPanelHtml(line) {
   if (!line.hasReceipt) {
     return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p>${editButton}</div>`;
   }
-  return `<div class="exdetail">${meta}${pcReceiptHtml(line)}${editButton}</div>`;
+  return `<div class="exdetail">${meta}${reportReceipt}${editButton}</div>`;
 }
 
 // A receipt that lives on the PC. It used to say "open it in Expense Hub",
 // which is no help at all when you are away from the PC -- which is the only
 // time you are holding the phone (2026-08-16).
 //
-// The image is fetched only when tapped and only into memory. Nothing is
-// written to localStorage: a real camera photo in phone storage broke this app
-// once already by blowing the quota silently, and a screen full of receipts
-// would do it again. Requires the PC to have pushed at least once since
-// v1.11, which is what supplies receiptFile.
+// The image is fetched only for the one expense being edited and only into
+// page memory. Nothing is written to localStorage: a real camera photo in
+// phone storage broke this app once already by blowing the quota silently.
+// Requires the PC to have pushed at least once, which supplies receiptFile.
 function pcReceiptHtml(line) {
   if (!line.receiptFile) {
     return '<p class="hint">This receipt is on the PC. Sync from the PC once to be able to open it here.</p>';
@@ -1839,26 +1945,50 @@ function pcReceiptHtml(line) {
   return `<button type="button" class="line-edit" data-view-receipt="${escapeHtml(line.receiptFile)}">View receipt</button>`;
 }
 
-async function openPcReceipt(name, button) {
+async function fetchPcReceiptDataUrl(name) {
   const url = localStorage.getItem(URL_KEY);
-  if (!url) { alert('Set the sync URL in Settings first.'); return; }
-  if (!isOnline()) { alert('This receipt is on the PC, so it needs a connection to open.'); return; }
+  if (!url) throw new Error('Set the sync URL in Settings first.');
+  if (!isOnline()) throw new Error('This receipt is on the PC, so it needs a connection to open.');
+  const code = getSyncCode();
+  const codePart = code ? '&code=' + encodeURIComponent(code) : '';
+  const res = await fetch(url + (url.includes('?') ? '&' : '?')
+    + 'action=receipt&name=' + encodeURIComponent(name) + codePart);
+  const json = await res.json();
+  rememberEndpointVersion(json);
+  if (!json.ok) throw new Error(json.error || 'That receipt could not be opened.');
+  return 'data:' + (json.mimeType || 'image/jpeg') + ';base64,' + json.dataBase64;
+}
+
+async function loadPcReceiptForEdit() {
+  const name = editingPcReceiptFile;
+  const editId = editingLocalId;
+  if (!name || photos.length || editingPcReceiptDataUrl || editingPcReceiptLoading) return;
+  editingPcReceiptLoading = true;
+  editingPcReceiptError = '';
+  renderAttachStrip();
+  try {
+    const dataUrl = await fetchPcReceiptDataUrl(name);
+    if (editingLocalId !== editId || editingPcReceiptFile !== name) return;
+    editingPcReceiptDataUrl = dataUrl;
+  } catch (error) {
+    if (editingLocalId !== editId || editingPcReceiptFile !== name) return;
+    editingPcReceiptError = error.message || 'That receipt could not be loaded.';
+  } finally {
+    if (editingLocalId === editId && editingPcReceiptFile === name) {
+      editingPcReceiptLoading = false;
+      renderAttachStrip();
+    }
+  }
+}
+
+async function openPcReceipt(name, button) {
   const label = button.textContent;
   button.disabled = true;
   button.textContent = 'Opening...';
   try {
-    const code = getSyncCode();
-    const codePart = code ? '&code=' + encodeURIComponent(code) : '';
-    const res = await fetch(url + (url.includes('?') ? '&' : '?')
-      + 'action=receipt&name=' + encodeURIComponent(name) + codePart);
-    const json = await res.json();
-    if (!json.ok) {
-      alert(json.error || 'That receipt could not be opened.');
-      return;
-    }
-    openReceiptLightbox('data:' + (json.mimeType || 'image/jpeg') + ';base64,' + json.dataBase64);
+    openReceiptLightbox(await fetchPcReceiptDataUrl(name));
   } catch (e) {
-    alert('Could not reach the PC sync endpoint to fetch that receipt.');
+    alert(e.message || 'Could not reach the PC sync endpoint to fetch that receipt.');
   } finally {
     button.disabled = false;
     button.textContent = label;
@@ -1872,7 +2002,8 @@ function pcEditValues(line) {
     currency: line.currency || '',
     category: line.category || '',
     description: line.description || '',
-    paidWith: line.paidWith || ''
+    paidWith: line.paidWith || '',
+    reportRef: line.reportRef || ''
   };
 }
 
@@ -2029,6 +2160,40 @@ function pendingKey(dateStr, amount, category) {
   ].join('|');
 }
 
+function reportEurAmount(line) {
+  const rawEur = line.eurAmount;
+  if (rawEur !== '' && rawEur !== null && rawEur !== undefined) {
+    const eur = Number(rawEur);
+    if (Number.isFinite(eur)) return eur;
+  }
+  if (String(line.currency || '').trim().toUpperCase() === 'EUR') {
+    const amount = Number(line.amount);
+    return Number.isFinite(amount) ? amount : 0;
+  }
+  return null;
+}
+
+const PHONE_CURRENCY_SYMBOL = { EUR: '€', GBP: '£', USD: '$', CHF: 'CHF ', ILS: '₪', AED: 'AED ' };
+
+function phoneMoney(value, currency) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '';
+  const code = String(currency || 'EUR').trim().toUpperCase();
+  return (PHONE_CURRENCY_SYMBOL[code] || `${code} `)
+    + numeric.toFixed(2).replace('.', ',');
+}
+
+function reportLineAmountHtml(line) {
+  const currency = String(line.currency || 'EUR').trim().toUpperCase();
+  const paid = phoneMoney(line.amount, currency);
+  if (currency === 'EUR') return escapeHtml(paid);
+  const eur = reportEurAmount(line);
+  if (eur === null) {
+    return `${escapeHtml(paid)} <small class="detail-paid-eur">(no EUR value)</small>`;
+  }
+  return `${escapeHtml(paid)} <small class="detail-paid-eur">(${escapeHtml(phoneMoney(eur, 'EUR'))}${line.eurEstimated ? ' est.' : ''})</small>`;
+}
+
 function localLinesForReport() {
   return load()
     .filter((item) => item.reportRef && item.reportRef === currentDetailReportRef)
@@ -2132,11 +2297,15 @@ function renderReportDetail() {
   // Same three numbers the PC shows. Before 13/08/2026 the phone added a
   // rejected line into the total like any other, so the two apps disagreed
   // about the same report and the phone was the one that was wrong.
-  const total = filtered.reduce((sum, x) => sum + (Number(x.amount) || 0), 0);
+  const missingEurCount = filtered.filter((x) => reportEurAmount(x) === null).length;
+  const total = filtered.reduce((sum, x) => sum + (reportEurAmount(x) ?? 0), 0);
   const rejectedLines = filtered.filter((x) => x.rejected);
-  const rejectedTotal = rejectedLines.reduce((sum, x) => sum + (Number(x.amount) || 0), 0);
+  const rejectedTotal = rejectedLines.reduce((sum, x) => sum + (reportEurAmount(x) ?? 0), 0);
+  const missingEurLabel = missingEurCount
+    ? ` <span class="detail-missing-eur">(${missingEurCount} missing EUR)</span>`
+    : '';
   document.getElementById('report-detail-total').innerHTML =
-    `<span>${filtered.length} expense${filtered.length === 1 ? '' : 's'}</span><span>${total.toFixed(2)}</span>`
+    `<span>${filtered.length} expense${filtered.length === 1 ? '' : 's'}</span><span>${total.toFixed(2)} EUR${missingEurLabel}</span>`
     + (rejectedLines.length
       ? `<span class="detail-rejected">Rejected, ${rejectedLines.length}</span><span class="detail-rejected">- ${rejectedTotal.toFixed(2)}</span>`
         + `<span>Accepted</span><span>${(total - rejectedTotal).toFixed(2)}</span>`
@@ -2167,7 +2336,7 @@ function renderReportDetail() {
       ${syncPill}
       ${rejectedPill}
       ${ndfPill}
-      <div class="amt">${Number(x.amount || 0).toFixed(2)}</div>
+      <div class="amt">${reportLineAmountHtml(x)}</div>
     </div>`;
     if (openDetailLine === rowKey) html += receiptPanelHtml(x);
   });
@@ -2245,6 +2414,7 @@ document.getElementById('toggle-sync-code').addEventListener('click', (event) =>
 });
 
 window.addEventListener('online', () => { drainScanQueue(); attemptSync(); fetchReports(); });
+window.addEventListener('offline', () => { markScriptVersionUnknown(); updateSyncStrip(); });
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});

@@ -1,5 +1,5 @@
 // Expense Hub Mobile -- Apps Script Web App
-// VERSION 1.12
+// VERSION 1.13
 // Paste this whole file into Extensions > Apps Script on the Google Sheet
 // created for mobile capture. Deploy > Manage deployments > edit (pencil)
 // > Version: New version > Deploy, so the URL you already pasted into the
@@ -7,7 +7,7 @@
 //
 // After redeploying, open the Web App URL directly in a browser (paste the
 // same URL from the phone's Settings field into any browser address bar).
-// The JSON response includes "version":"1.12" -- if it still says an older
+// The JSON response includes "version":"1.13" -- if it still says an older
 // number, the redeploy did not actually take and that is the bug, not the
 // code below.
 //
@@ -38,13 +38,14 @@
 // Sheet columns (PCExpenses, row 1, exact order) -- new 2026-08-02:
 // EXP_ID | REPORT_REF | DATE | CATEGORY | DESCRIPTION | PAID_WITH | AMOUNT |
 // CURRENCY | HAS_RECEIPT | NDF | REJECTED | REJECTED_NOTE | LOCAL_ID |
-// PC_TAKEN_AT | OCR_FIELDS | DELETED | RECEIPT_FILE | MOBILE_EDIT_CONFLICT
+// PC_TAKEN_AT | OCR_FIELDS | DELETED | RECEIPT_FILE | MOBILE_EDIT_CONFLICT |
+// EUR_AMOUNT | EUR_ESTIMATED
 // Written only by expense_hub/mobile_push.py, delete-then-rewrite on every
 // push. Every Draft report's lines are sent so an older line cannot silently
 // stay on the PC only. Never edited here by
 // hand.
 
-var VERSION = '1.12';
+var VERSION = '1.13';
 var SHEET_NAME = 'MobileCaptures';
 var PC_REPORTS_SHEET_NAME = 'PCReports';
 var PC_EXPENSES_SHEET_NAME = 'PCExpenses';
@@ -146,7 +147,7 @@ function doPushExpenses_(data) {
   var sheet = getOrCreatePCExpensesSheet();
   var expenses = data.expenses || [];
   if (sheet.getLastRow() > 1) {
-    sheet.getRange(2, 1, sheet.getLastRow() - 1, 18).clearContent();
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, 20).clearContent();
   }
   var rows = expenses.map(function(x) {
     return [
@@ -155,11 +156,13 @@ function doPushExpenses_(data) {
       x.hasReceipt ? 1 : 0, x.ndf ? 1 : 0,
       x.rejected ? 1 : 0, x.rejectedNote || '', x.localId || '', x.pcTakenAt || '',
       Array.isArray(x.ocrFields) ? x.ocrFields.join(',') : (x.ocrFields || ''),
-      x.deleted ? 1 : 0, x.receiptFile || '', x.mobileEditConflict || ''
+      x.deleted ? 1 : 0, x.receiptFile || '', x.mobileEditConflict || '',
+      x.eurAmount === undefined || x.eurAmount === null ? '' : x.eurAmount,
+      x.eurEstimated ? 1 : 0
     ];
   });
   if (rows.length) {
-    sheet.getRange(2, 1, rows.length, 18).setValues(rows);
+    sheet.getRange(2, 1, rows.length, 20).setValues(rows);
   }
   return respond({ ok: true, received: rows.length });
 }
@@ -324,7 +327,7 @@ function listPCExpenses() {
   var sheet = getOrCreatePCExpensesSheet();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  var values = sheet.getRange(2, 1, lastRow - 1, 18).getValues();
+  var values = sheet.getRange(2, 1, lastRow - 1, 20).getValues();
   var out = [];
   values.forEach(function(row) {
     var isDeleted = row[15] === 1 || row[15] === true;
@@ -342,7 +345,9 @@ function listPCExpenses() {
       ocrFields: row[14] || '',
       deleted: isDeleted,
       receiptFile: row[16] || '',
-      mobileEditConflict: row[17] || ''
+      mobileEditConflict: row[17] || '',
+      eurAmount: row[18] || '',
+      eurEstimated: row[19] === 1 || row[19] === true
     });
   });
   return out;
@@ -357,18 +362,20 @@ function getOrCreatePCExpensesSheet() {
       'EXP_ID', 'REPORT_REF', 'DATE', 'CATEGORY', 'DESCRIPTION', 'PAID_WITH',
       'AMOUNT', 'CURRENCY', 'HAS_RECEIPT', 'NDF', 'REJECTED', 'REJECTED_NOTE',
       'LOCAL_ID', 'PC_TAKEN_AT', 'OCR_FIELDS', 'DELETED', 'RECEIPT_FILE',
-      'MOBILE_EDIT_CONFLICT'
+      'MOBILE_EDIT_CONFLICT', 'EUR_AMOUNT', 'EUR_ESTIMATED'
     ]);
   } else if (String(sheet.getRange(1, 11).getValue()) !== 'REJECTED'
       || String(sheet.getRange(1, 15).getValue()) !== 'OCR_FIELDS'
       || String(sheet.getRange(1, 16).getValue()) !== 'DELETED'
       || String(sheet.getRange(1, 17).getValue()) !== 'RECEIPT_FILE'
-      || String(sheet.getRange(1, 18).getValue()) !== 'MOBILE_EDIT_CONFLICT') {
-    sheet.getRange(1, 1, 1, 18).setValues([[
+      || String(sheet.getRange(1, 18).getValue()) !== 'MOBILE_EDIT_CONFLICT'
+      || String(sheet.getRange(1, 19).getValue()) !== 'EUR_AMOUNT'
+      || String(sheet.getRange(1, 20).getValue()) !== 'EUR_ESTIMATED') {
+    sheet.getRange(1, 1, 1, 20).setValues([[
       'EXP_ID', 'REPORT_REF', 'DATE', 'CATEGORY', 'DESCRIPTION', 'PAID_WITH',
       'AMOUNT', 'CURRENCY', 'HAS_RECEIPT', 'NDF', 'REJECTED', 'REJECTED_NOTE',
       'LOCAL_ID', 'PC_TAKEN_AT', 'OCR_FIELDS', 'DELETED', 'RECEIPT_FILE',
-      'MOBILE_EDIT_CONFLICT'
+      'MOBILE_EDIT_CONFLICT', 'EUR_AMOUNT', 'EUR_ESTIMATED'
     ]]);
   }
   return sheet;
@@ -449,6 +456,7 @@ function savePhotos(photos) {
 }
 
 function respond(obj) {
+  if (obj && obj.version === undefined) obj.version = VERSION;
   return ContentService.createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
 }
