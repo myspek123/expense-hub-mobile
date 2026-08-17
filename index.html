@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.13">
+<meta name="application-version" content="3.14">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -63,6 +63,7 @@
   .attach-thumb-wrap { position: relative; width: 44px; height: 44px; }
   .attach-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 9px; border: 1px solid var(--line); display: block; }
   img.attach-thumb { cursor: zoom-in; }
+  .attach-thumb-error { display: flex; align-items: center; justify-content: center; padding: 4px; text-align: center; font-size: 9px; line-height: 1.1; color: var(--danger); background: #fff7f6; border-color: #e9c2bd; }
   .attach-remove {
     position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%;
     border: 1px solid var(--line); background: #fff; color: var(--danger); font-size: 12px; line-height: 1; padding: 0;
@@ -122,6 +123,10 @@
   /* Grey, not red: the PC discarding a capture you asked it to discard
      is a finished job, not a failure. Red is for failures. */
   .qrow .status.gone { background: #eceff4; color: var(--muted); text-decoration: line-through; }
+  .iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: 0 0 34px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--muted); padding: 0; }
+  .iconbtn svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .iconbtn.danger { color: var(--danger); border-color: #f0cbc8; }
+  .queue-discard { margin-left: 7px; }
   .scan-pill { display: inline-block; margin-left: 8px; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
   .scan-pill.pending, .scan-pill.failed { background: var(--amber-bg); color: var(--amber); }
   .scan-pill.done { background: var(--green-bg); color: var(--green); }
@@ -139,10 +144,14 @@
   section { display: none; }
   section.active { display: block; }
   .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .empty-state { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: #202633; font-size: 13px; }
+  .empty-state p { margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.35; }
   .band { font-size: 11px; font-weight: 700; letter-spacing: .05em; color: var(--muted); background: #eef2fa; padding: 6px 10px; border-radius: 6px; margin: 14px 0 4px; }
   .band:first-child { margin-top: 0; }
-  .report-drop { border: 0; background: none; color: var(--muted); font-size: 20px; line-height: 1; padding: 0 4px; min-width: 44px; min-height: 44px; }
+  .report-drop { margin-left: 8px; }
   .report-row { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .report-row.is-clickable { cursor: pointer; }
+  .report-row.phone-only { background: #fafbfd; }
   .report-row-main { flex: 1; min-width: 0; }
   .report-meta { color: var(--muted); font-size: 11px; margin-top: 2px; font-variant-numeric: tabular-nums; }
   .status-pill { font-size: 10px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; background: #eef2fa; color: var(--muted); }
@@ -210,7 +219,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.13</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.14</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -807,23 +816,40 @@ function openReceiptLightbox(src) {
   const lightbox = document.createElement('div');
   lightbox.className = 'receipt-lightbox';
   lightbox.innerHTML = '<button type="button" aria-label="Close">&times;</button><img alt="Receipt">';
-  lightbox.querySelector('img').src = src;
+  const lightboxImage = lightbox.querySelector('img');
+  lightboxImage.src = src;
+  lightboxImage.addEventListener('error', () => {
+    lightboxImage.alt = 'Receipt unavailable';
+    lightboxImage.className = 'attach-thumb-error';
+  }, { once: true });
   lightbox.addEventListener('click', (click) => {
     if (click.target === lightbox || click.target.tagName === 'BUTTON') lightbox.remove();
   });
   document.body.appendChild(lightbox);
 }
 
+function markReceiptImageUnavailable(image) {
+  if (!image || !image.parentNode) return;
+  const fallback = document.createElement('div');
+  fallback.className = 'attach-thumb attach-thumb-error';
+  fallback.textContent = 'Receipt unavailable';
+  image.replaceWith(fallback);
+}
+
 function renderAttachStrip() {
   const host = document.getElementById('attach-strip');
-  host.innerHTML = photos.map((p, i) => dataUrlOf(p).startsWith('data:image')
-    ? `<div class="attach-thumb-wrap"><img class="attach-thumb" src="${dataUrlOf(p)}"><button type="button" class="attach-remove" data-remove="${i}">&times;</button></div>`
+  host.innerHTML = photos.map((p, i) => {
+    const src = dataUrlOf(p);
+    const isImage = dataUrlOf(p).startsWith('data:image');
+    return isImage
+    ? `<div class="attach-thumb-wrap"><img class="attach-thumb" alt="Receipt preview" src="${src}"><button type="button" class="attach-remove" data-remove="${i}">&times;</button></div>`
     : `<div class="attach-thumb-wrap"><div class="attach-thumb" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--muted)">FILE</div><button type="button" class="attach-remove" data-remove="${i}">&times;</button></div>`
-  ).join('');
+  }).join('');
   host.querySelectorAll('[data-remove]').forEach((btn) => {
     btn.addEventListener('click', () => { photoDirty = true; photos.splice(Number(btn.dataset.remove), 1); renderAttachStrip(); });
   });
   host.querySelectorAll('img.attach-thumb').forEach((image) => {
+    image.addEventListener('error', () => markReceiptImageUnavailable(image), { once: true });
     image.addEventListener('click', () => openReceiptLightbox(image.src));
   });
   // The PC's copy is fetched when the edit screen opens and held only in this
@@ -838,6 +864,7 @@ function renderAttachStrip() {
       image.className = 'attach-thumb';
       image.alt = 'Receipt';
       image.src = editingPcReceiptDataUrl;
+      image.addEventListener('error', () => markReceiptImageUnavailable(image), { once: true });
       image.addEventListener('click', () => openReceiptLightbox(image.src));
       wrapper.appendChild(image);
       host.appendChild(wrapper);
@@ -1726,7 +1753,7 @@ function renderQueue() {
     const description = display.description ? ' · ' + escapeHtml(display.description) : '';
     const discard = pcOwnsCapture(item)
       ? ''
-      : `<button type="button" class="btn ghost small queue-discard" data-discard="${escapeHtml(item.localId)}">Discard</button>`;
+      : `<button type="button" class="iconbtn danger queue-discard" data-discard="${escapeHtml(item.localId)}" aria-label="Discard phone-only capture" title="Discard phone-only capture"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-9 0 1 13h8l1-13M10 11v5m4-5v5"/></svg></button>`;
     const group = groupLabel(item);
     if (group !== lastGroup) {
       html += `<div class="band">${escapeHtml(group)}</div>`;
@@ -2078,8 +2105,9 @@ function renderReports() {
       html += `<div class="report-row" ${openAttrs}><div>${escapeHtml(r.name || '(unnamed)')}</div>${r.status ? `<span class="status-pill ${escapeHtml(statusClass)}">${escapeHtml(r.status)}</span>` : ''}${removable}</div>`;
     });
   });
-  host.innerHTML = html || '<p class="hint">No reports from the PC yet. Check back after the next 30-minute sync.</p>';
+  host.innerHTML = html || '<div class="empty-state"><strong>No PC reports on this phone yet.</strong><p>Reports become clickable after the phone receives the PC report list. Phone-only captures can be opened from Sync and stay there until the PC imports them.</p></div>';
   host.querySelectorAll('[data-open-report]').forEach((row) => {
+    row.classList.add('is-clickable');
     const report = all.find((r) => r.reportRef === row.dataset.openReport);
     const summary = reportListSummary(report);
     const main = row.firstElementChild;
@@ -2095,6 +2123,18 @@ function renderReports() {
     row.addEventListener('click', () => openReportDetail(row.dataset.openReport, report));
   });
   host.querySelectorAll('[data-drop-report]').forEach((button) => {
+    button.classList.add('iconbtn', 'danger');
+    button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-9 0 1 13h8l1-13M10 11v5m4-5v5"/></svg>';
+    const row = button.closest('.report-row');
+    const main = row && row.firstElementChild;
+    if (row && main && !main.querySelector('.report-meta')) {
+      row.classList.add('phone-only');
+      const meta = document.createElement('div');
+      meta.className = 'report-meta';
+      meta.textContent = 'Phone only · not on PC yet · captures stay in Sync';
+      main.className = 'report-row-main';
+      main.appendChild(meta);
+    }
     button.addEventListener('click', (event) => {
       event.stopPropagation();
       const [type, name] = String(button.dataset.dropReport || '').split(' ');

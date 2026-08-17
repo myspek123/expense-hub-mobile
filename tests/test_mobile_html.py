@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.13"' in HTML
-    assert '>v3.13</span>' in HTML
+    assert 'content="3.14"' in HTML
+    assert '>v3.14</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v33" in service_worker
+    assert "eh-mobile-v34" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.16';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -72,6 +72,24 @@ def test_a_report_the_pc_never_took_can_be_removed_from_the_phone():
     # only a local-only row gets the control: a real PC report is the PC's
     assert "r.localOnly" in reports
     assert "data-drop-report" in reports
+
+
+def test_report_ownership_is_explained_when_there_is_nothing_to_open():
+    reports = HTML[HTML.index("function renderReports()") :]
+    reports = reports[: reports.index("function reportListSummary")]
+    assert "No PC reports on this phone yet" in reports
+    assert "Phone-only captures can be opened from Sync" in reports
+    assert "Phone only · not on PC yet · captures stay in Sync" in HTML
+    assert "button.classList.add('iconbtn', 'danger')" in reports
+
+
+def test_sync_discard_is_a_small_accessible_bin_icon():
+    queue = HTML[HTML.index("function renderQueue()") :]
+    queue = queue[: queue.index("function updateSyncStrip")]
+    assert 'class="iconbtn danger queue-discard"' in queue
+    assert 'aria-label="Discard phone-only capture"' in queue
+    assert '<svg viewBox="0 0 24 24"' in queue
+    assert '>Discard<' not in queue
 
 
 # -- 2026-08-16: a trip's worth of receipts, straight from the gallery ------
@@ -173,6 +191,15 @@ def test_capture_thumbnails_open_the_receipt_full_size():
     # the remove x must never double as the viewer: the listener is on the
     # image itself, not on the wrapper both controls share
     assert "querySelectorAll('.attach-thumb-wrap')" not in strip
+
+
+def test_failed_receipt_preview_is_visible_and_not_a_broken_blank_image():
+    strip = HTML[HTML.index("function renderAttachStrip()") :]
+    strip = strip[: strip.index("document.getElementById('f-photo')")]
+    assert "markReceiptImageUnavailable(image)" in strip
+    assert "attach-thumb-error" in HTML
+    assert "Receipt unavailable" in HTML
+    assert 'alt="Receipt preview"' in strip
 
 
 def test_only_one_lightbox_implementation_exists():
