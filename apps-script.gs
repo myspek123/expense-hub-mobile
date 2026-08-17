@@ -1,5 +1,5 @@
 // Expense Hub Mobile -- Apps Script Web App
-// VERSION 1.11
+// VERSION 1.12
 // Paste this whole file into Extensions > Apps Script on the Google Sheet
 // created for mobile capture. Deploy > Manage deployments > edit (pencil)
 // > Version: New version > Deploy, so the URL you already pasted into the
@@ -7,7 +7,7 @@
 //
 // After redeploying, open the Web App URL directly in a browser (paste the
 // same URL from the phone's Settings field into any browser address bar).
-// The JSON response includes "version":"1.10" -- if it still says an older
+// The JSON response includes "version":"1.12" -- if it still says an older
 // number, the redeploy did not actually take and that is the bug, not the
 // code below.
 //
@@ -25,7 +25,7 @@
 // Sheet columns (MobileCaptures, row 1, exact order):
 // Timestamp | LocalId | ReportType | ReportName | Date | Category |
 // Amount | Currency | Description | PaidWith | PhotoUrls | ReportRef |
-// OcrStatus | OcrFields | OcrImageHash | OcrManualFields
+// OcrStatus | OcrFields | OcrImageHash | OcrManualFields | ExpId | BaseValues
 // (ReportRef added 2026-08-01: which real PC report, if any, the phone
 // picked from PCReports -- blank means free-typed, unfiled on the PC side.)
 //
@@ -38,13 +38,13 @@
 // Sheet columns (PCExpenses, row 1, exact order) -- new 2026-08-02:
 // EXP_ID | REPORT_REF | DATE | CATEGORY | DESCRIPTION | PAID_WITH | AMOUNT |
 // CURRENCY | HAS_RECEIPT | NDF | REJECTED | REJECTED_NOTE | LOCAL_ID |
-// PC_TAKEN_AT | OCR_FIELDS
+// PC_TAKEN_AT | OCR_FIELDS | DELETED | RECEIPT_FILE | MOBILE_EDIT_CONFLICT
 // Written only by expense_hub/mobile_push.py, delete-then-rewrite on every
 // push. Every Draft report's lines are sent so an older line cannot silently
 // stay on the PC only. Never edited here by
 // hand.
 
-var VERSION = '1.11';
+var VERSION = '1.12';
 var SHEET_NAME = 'MobileCaptures';
 var PC_REPORTS_SHEET_NAME = 'PCReports';
 var PC_EXPENSES_SHEET_NAME = 'PCExpenses';
@@ -94,7 +94,9 @@ function doPost(e) {
       data.ocrStatus || '',
       Array.isArray(data.ocrFields) ? data.ocrFields.join(',') : (data.ocrFields || ''),
       data.ocrImageHash || '',
-      Array.isArray(data.ocrManualFields) ? data.ocrManualFields.join(',') : (data.ocrManualFields || '')
+      Array.isArray(data.ocrManualFields) ? data.ocrManualFields.join(',') : (data.ocrManualFields || ''),
+      data.expId || '',
+      data.baseValues ? JSON.stringify(data.baseValues) : ''
     ];
 
     // A phone can re-send a localId it already sent once, either as a
@@ -102,7 +104,9 @@ function doPost(e) {
     // the Queue and changed something -- either way, the sheet must end
     // up with one row that matches what the phone last saved, not a
     // silent no-op.
-    var existingRow = findRowByLocalId(sheet, data.localId);
+    var existingRow = data.expId
+      ? findRowByExpId(sheet, data.expId)
+      : findRowByLocalId(sheet, data.localId);
     if (existingRow) {
       sheet.getRange(existingRow, 1, 1, row.length).setValues([row]);
       return respond({ ok: true, updated: true });
@@ -142,7 +146,7 @@ function doPushExpenses_(data) {
   var sheet = getOrCreatePCExpensesSheet();
   var expenses = data.expenses || [];
   if (sheet.getLastRow() > 1) {
-    sheet.getRange(2, 1, sheet.getLastRow() - 1, 17).clearContent();
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, 18).clearContent();
   }
   var rows = expenses.map(function(x) {
     return [
@@ -151,11 +155,11 @@ function doPushExpenses_(data) {
       x.hasReceipt ? 1 : 0, x.ndf ? 1 : 0,
       x.rejected ? 1 : 0, x.rejectedNote || '', x.localId || '', x.pcTakenAt || '',
       Array.isArray(x.ocrFields) ? x.ocrFields.join(',') : (x.ocrFields || ''),
-      x.deleted ? 1 : 0, x.receiptFile || ''
+      x.deleted ? 1 : 0, x.receiptFile || '', x.mobileEditConflict || ''
     ];
   });
   if (rows.length) {
-    sheet.getRange(2, 1, rows.length, 17).setValues(rows);
+    sheet.getRange(2, 1, rows.length, 18).setValues(rows);
   }
   return respond({ ok: true, received: rows.length });
 }
@@ -242,9 +246,9 @@ function exportCaptures() {
   var sheet = getOrCreateSheet();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  // 16, not 17. This reads the phone's own MobileCaptures sheet, which is a
-  // different shape from PCExpenses -- RECEIPT_FILE was added to that one.
-  var values = sheet.getRange(2, 1, lastRow - 1, 16).getValues();
+  // 18 columns. This reads the phone's own MobileCaptures sheet, which is a
+  // different shape from PCExpenses -- the edit request fields are last.
+  var values = sheet.getRange(2, 1, lastRow - 1, 18).getValues();
   var out = [];
   values.forEach(function(row) {
     var localId = row[1];
@@ -265,7 +269,9 @@ function exportCaptures() {
       ocrStatus: row[12] || '',
       ocrFields: row[13] || '',
       ocrImageHash: row[14] || '',
-      ocrManualFields: row[15] || ''
+      ocrManualFields: row[15] || '',
+      expId: row[16] || '',
+      baseValues: row[17] || ''
     });
   });
   return out;
@@ -318,7 +324,7 @@ function listPCExpenses() {
   var sheet = getOrCreatePCExpensesSheet();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  var values = sheet.getRange(2, 1, lastRow - 1, 17).getValues();
+  var values = sheet.getRange(2, 1, lastRow - 1, 18).getValues();
   var out = [];
   values.forEach(function(row) {
     var isDeleted = row[15] === 1 || row[15] === true;
@@ -335,7 +341,8 @@ function listPCExpenses() {
       rejectedNote: row[11] || '', localId: row[12] || '', pcTakenAt: row[13] || '',
       ocrFields: row[14] || '',
       deleted: isDeleted,
-      receiptFile: row[16] || ''
+      receiptFile: row[16] || '',
+      mobileEditConflict: row[17] || ''
     });
   });
   return out;
@@ -349,16 +356,19 @@ function getOrCreatePCExpensesSheet() {
     sheet.appendRow([
       'EXP_ID', 'REPORT_REF', 'DATE', 'CATEGORY', 'DESCRIPTION', 'PAID_WITH',
       'AMOUNT', 'CURRENCY', 'HAS_RECEIPT', 'NDF', 'REJECTED', 'REJECTED_NOTE',
-      'LOCAL_ID', 'PC_TAKEN_AT', 'OCR_FIELDS', 'DELETED', 'RECEIPT_FILE'
+      'LOCAL_ID', 'PC_TAKEN_AT', 'OCR_FIELDS', 'DELETED', 'RECEIPT_FILE',
+      'MOBILE_EDIT_CONFLICT'
     ]);
   } else if (String(sheet.getRange(1, 11).getValue()) !== 'REJECTED'
       || String(sheet.getRange(1, 15).getValue()) !== 'OCR_FIELDS'
       || String(sheet.getRange(1, 16).getValue()) !== 'DELETED'
-      || String(sheet.getRange(1, 17).getValue()) !== 'RECEIPT_FILE') {
-    sheet.getRange(1, 1, 1, 17).setValues([[
+      || String(sheet.getRange(1, 17).getValue()) !== 'RECEIPT_FILE'
+      || String(sheet.getRange(1, 18).getValue()) !== 'MOBILE_EDIT_CONFLICT') {
+    sheet.getRange(1, 1, 1, 18).setValues([[
       'EXP_ID', 'REPORT_REF', 'DATE', 'CATEGORY', 'DESCRIPTION', 'PAID_WITH',
       'AMOUNT', 'CURRENCY', 'HAS_RECEIPT', 'NDF', 'REJECTED', 'REJECTED_NOTE',
-      'LOCAL_ID', 'PC_TAKEN_AT', 'OCR_FIELDS', 'DELETED', 'RECEIPT_FILE'
+      'LOCAL_ID', 'PC_TAKEN_AT', 'OCR_FIELDS', 'DELETED', 'RECEIPT_FILE',
+      'MOBILE_EDIT_CONFLICT'
     ]]);
   }
   return sheet;
@@ -372,7 +382,7 @@ function getOrCreateSheet() {
     sheet.appendRow([
       'Timestamp', 'LocalId', 'ReportType', 'ReportName', 'Date',
       'Category', 'Amount', 'Currency', 'Description', 'PaidWith', 'PhotoUrls', 'ReportRef',
-      'OcrStatus', 'OcrFields', 'OcrImageHash', 'OcrManualFields'
+      'OcrStatus', 'OcrFields', 'OcrImageHash', 'OcrManualFields', 'ExpId', 'BaseValues'
     ]);
     return sheet;
   }
@@ -382,8 +392,8 @@ function getOrCreateSheet() {
   if (String(sheet.getRange(1, 12).getValue()) !== 'ReportRef') {
     sheet.getRange(1, 12).setValue('ReportRef');
   }
-  sheet.getRange(1, 13, 1, 4).setValues([[
-    'OcrStatus', 'OcrFields', 'OcrImageHash', 'OcrManualFields'
+  sheet.getRange(1, 13, 1, 6).setValues([[
+    'OcrStatus', 'OcrFields', 'OcrImageHash', 'OcrManualFields', 'ExpId', 'BaseValues'
   ]]);
   return sheet;
 }
@@ -405,6 +415,17 @@ function findRowByLocalId(sheet, localId) {
   var values = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
   for (var i = 0; i < values.length; i++) {
     if (values[i][0] === localId) return i + 2;
+  }
+  return null;
+}
+
+function findRowByExpId(sheet, expId) {
+  if (!expId) return null;
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return null;
+  var values = sheet.getRange(2, 17, lastRow - 1, 1).getValues();
+  for (var i = 0; i < values.length; i++) {
+    if (values[i][0] === expId) return i + 2;
   }
   return null;
 }

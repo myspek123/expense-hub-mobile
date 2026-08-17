@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.0"' in HTML
-    assert '>v3.0</span>' in HTML
+    assert 'content="3.1"' in HTML
+    assert '>v3.1</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v20" in service_worker
+    assert "eh-mobile-v21" in service_worker
 
 
 # -- 2026-08-16 evening: what the first real gallery run turned up ----------

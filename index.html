@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.0">
+<meta name="application-version" content="3.1">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -202,7 +202,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="app-version">v3.0</span></header>
+<header><h1>Expense Hub</h1><span class="app-version">v3.1</span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1099,6 +1099,9 @@ async function saveCapture(opts) {
     : (photos.length ? await hashFirstPhoto() : '');
   const item = {
     localId: isEdit ? editingLocalId : uid(),
+    expId: prior && prior.expId ? prior.expId : '',
+    baseValues: prior && prior.baseValues ? prior.baseValues : null,
+    pcEditDraft: Boolean(prior && prior.pcEditDraft),
     reportType: document.getElementById('f-report-type').value,
     reportName: document.getElementById('f-report-name').value,
     reportRef: selectedReportRef,
@@ -1222,6 +1225,10 @@ document.getElementById('btn-quick-save').addEventListener('click', () => {
 // edit is opened from; clearForm already drops editingLocalId, the photos and
 // the scan marks, so nothing is left half-held.
 function cancelEdit() {
+  const current = editingLocalId && load().find((item) => item.localId === editingLocalId);
+  if (current && current.pcEditDraft && !current.awaitingPcUpdate) {
+    save(load().filter((item) => item.localId !== editingLocalId));
+  }
   clearForm();
   const reportsTab = document.querySelector('nav button[data-tab="reports"]');
   if (reportsTab) reportsTab.click();
@@ -1251,7 +1258,9 @@ function openForEdit(localId) {
   clearForm();
   editingLocalId = localId;
   document.getElementById('edit-banner').style.display = 'flex';
-  document.getElementById('edit-banner-text').textContent = item.synced
+  document.getElementById('edit-banner-text').textContent = item.expId
+    ? 'Editing a PC expense. Saving sends the change to the PC.'
+    : item.synced
     ? 'Editing an already-synced expense. Saving will update it.'
     : 'Editing a not-yet-synced expense.';
   document.getElementById('f-report-type').value = source.reportType || '';
@@ -1356,7 +1365,8 @@ function deletedOnPc(item) {
 function matchingPcLine(item) {
   const pcLines = getCachedExpenses();
   if (!item) return null;
-  return pcLines.find((line) => item.localId && line.localId && line.localId === item.localId)
+  return pcLines.find((line) => item.expId && line.expId && line.expId === item.expId)
+    || pcLines.find((line) => item.localId && line.localId && line.localId === item.localId)
     || pcLines.find((line) => pendingKey(line.date, line.amount, line.category)
       === pendingKey(item.date, item.amount, item.category))
     || null;
@@ -1619,12 +1629,32 @@ async function fetchReports() {
       const queue = load();
       let changed = false;
       queue.forEach((item) => {
-        const pc = expenses.find((line) => line.localId && line.localId === item.localId)
+        const pc = expenses.find((line) => item.expId && line.expId && line.expId === item.expId)
+          || expenses.find((line) => line.localId && line.localId === item.localId)
           || expenses.find((line) => pendingKey(line.date, line.amount, line.category) === pendingKey(item.date, item.amount, item.category));
+        if (pc && pc.expId && item.expId !== pc.expId) { item.expId = pc.expId; changed = true; }
         if (pc && pc.pcTakenAt && !item.pcTakenAt) { item.pcTakenAt = pc.pcTakenAt; changed = true; }
-        if (pc && item.awaitingPcUpdate && pcLineMatchesLocal(item, pc)) {
-          item.awaitingPcUpdate = false;
-          changed = true;
+        if (pc && item.awaitingPcUpdate) {
+          if (pc.mobileEditConflict) {
+            // The PC is waiting for its inline conflict decision. Keep the
+            // phone request visible as pending until that decision is made.
+          } else if (pcLineMatchesLocal(item, pc)) {
+            item.awaitingPcUpdate = false;
+            item.baseValues = pcEditValues(pc);
+            changed = true;
+          } else {
+            // The PC chose its own version. The phone is a capture device, so
+            // the PC's values now replace the pending local request.
+            item.date = pc.date ?? item.date;
+            item.category = pc.category ?? item.category;
+            item.amount = pc.amount ?? item.amount;
+            item.currency = pc.currency ?? item.currency;
+            item.description = pc.description ?? item.description;
+            item.paidWith = pc.paidWith ?? item.paidWith;
+            item.baseValues = pcEditValues(pc);
+            item.awaitingPcUpdate = false;
+            changed = true;
+          }
         }
       });
       if (changed) save(queue);
@@ -1640,9 +1670,12 @@ function amountKey(value) {
 }
 
 function pcLineMatchesLocal(item, pc) {
-  return amountKey(pc.amount) === amountKey(item.amount)
+  return String(pc.date ?? '').slice(0, 10) === String(item.date ?? '').slice(0, 10)
+    && amountKey(pc.amount) === amountKey(item.amount)
+    && String(pc.currency ?? '').trim().toUpperCase() === String(item.currency ?? '').trim().toUpperCase()
     && String(pc.category ?? '').trim() === String(item.category ?? '').trim()
-    && String(pc.description ?? '').trim() === String(item.description ?? '').trim();
+    && String(pc.description ?? '').trim() === String(item.description ?? '').trim()
+    && String(pc.paidWith ?? '').trim() === String(item.paidWith ?? '').trim();
 }
 
 // Maps a PC flow code back to the phone's own type label where one exists
@@ -1740,6 +1773,10 @@ let openDetailLine = '';
 // captured here still openable and editable here (13/08/2026, his item 4).
 function localCaptureFor(line) {
   const queue = load();
+  if (line.expId) {
+    const byExpenseId = queue.find((item) => item.expId && item.expId === line.expId);
+    if (byExpenseId) return byExpenseId;
+  }
   if (line.localId) return queue.find((item) => item.localId === line.localId) || null;
   const key = pendingKey(line.date, line.amount, line.category);
   return queue.find((item) => pendingKey(item.date, item.amount, item.category) === key) || null;
@@ -1754,7 +1791,9 @@ function receiptPanelHtml(line) {
   const local = localCaptureFor(line);
   const editButton = local
     ? `<button type="button" class="line-edit" data-edit-line="${escapeHtml(local.localId)}">Edit this expense</button>`
-    : '';
+    : line.expId
+      ? `<button type="button" class="line-edit" data-edit-pc="${escapeHtml(line.expId)}">Edit this expense</button>`
+      : '';
   if (local) {
     const shots = local.photos || [];
     if (!shots.length) {
@@ -1779,9 +1818,9 @@ function receiptPanelHtml(line) {
     return `<div class="exdetail">${meta}${images}${editButton}</div>`;
   }
   if (!line.hasReceipt) {
-    return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p></div>`;
+    return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p>${editButton}</div>`;
   }
-  return `<div class="exdetail">${meta}${pcReceiptHtml(line)}</div>`;
+  return `<div class="exdetail">${meta}${pcReceiptHtml(line)}${editButton}</div>`;
 }
 
 // A receipt that lives on the PC. It used to say "open it in Expense Hub",
@@ -1824,6 +1863,57 @@ async function openPcReceipt(name, button) {
     button.disabled = false;
     button.textContent = label;
   }
+}
+
+function pcEditValues(line) {
+  return {
+    date: line.date || '',
+    amount: line.amount ?? '',
+    currency: line.currency || '',
+    category: line.category || '',
+    description: line.description || '',
+    paidWith: line.paidWith || ''
+  };
+}
+
+function startPcExpenseEdit(line) {
+  if (!line || !line.expId) return;
+  const existing = load().find((item) => item.expId === line.expId);
+  if (existing) {
+    openForEdit(existing.localId);
+    return;
+  }
+  const report = currentDetailReport || {};
+  const draft = {
+    localId: uid(),
+    expId: line.expId,
+    baseValues: pcEditValues(line),
+    pcEditDraft: true,
+    reportType: FLOW_TO_PHONE_TYPE[report.type] || report.type || '',
+    reportName: report.name || '',
+    reportRef: line.reportRef || currentDetailReportRef,
+    date: line.date || '',
+    category: line.category || '',
+    amount: line.amount ?? '',
+    currency: line.currency || 'EUR',
+    description: line.description || '',
+    paidWith: line.paidWith || '',
+    photos: [],
+    ocrStatus: '',
+    ocrFields: Array.isArray(line.ocrFields) ? line.ocrFields : String(line.ocrFields || '').split(',').filter(Boolean),
+    ocrManualFields: [],
+    ocrFillableFields: OCR_FIELDS.slice(),
+    ocrImageHash: '',
+    synced: true,
+    awaitingPcUpdate: false
+  };
+  try {
+    save(load().concat([draft]));
+  } catch (error) {
+    showToast("Couldn't open that expense for editing on this phone (storage full).", true);
+    return;
+  }
+  openForEdit(draft.localId);
 }
 
 function openReportDetail(reportRef, report) {
@@ -1944,6 +2034,7 @@ function localLinesForReport() {
     .filter((item) => item.reportRef && item.reportRef === currentDetailReportRef)
     .map((item) => ({
       localId: item.localId,
+      expId: item.expId || '',
       reportRef: item.reportRef,
       date: item.date || '',
       category: item.category || '',
@@ -1963,14 +2054,35 @@ function localLinesForReport() {
 }
 
 function detailLinesForReport() {
-  const pcLines = getCachedExpenses().filter((x) => x.reportRef === currentDetailReportRef);
+  const queue = load();
+  const pendingEdits = new Map(
+    queue.filter((item) => item.expId && item.awaitingPcUpdate)
+      .map((item) => [item.expId, item])
+  );
+  const pcLines = getCachedExpenses().filter((x) => x.reportRef === currentDetailReportRef).map((line) => {
+    const edit = pendingEdits.get(line.expId);
+    if (!edit) return line;
+    return Object.assign({}, line, {
+      localId: edit.localId,
+      date: edit.date,
+      category: edit.category,
+      description: edit.description,
+      paidWith: edit.paidWith,
+      amount: edit.amount,
+      currency: edit.currency,
+      pending: true,
+      pendingLabel: 'Waiting for PC',
+      hasReceipt: line.hasReceipt
+    });
+  });
   const knownLocalIds = new Set(pcLines.map((x) => x.localId).filter(Boolean));
   const known = new Set(pcLines.map((x) => pendingKey(x.date, x.amount, x.category)));
   // Once the PC has the line, the PC's copy wins: it carries the real exp_id and
   // whatever was changed on the desktop. Matching on date, amount and category
   // because the phone's capture never learns the exp_id it was given.
   const pending = localLinesForReport().filter(
-    (x) => !knownLocalIds.has(x.localId)
+    (x) => !pendingEdits.has(x.expId)
+      && !knownLocalIds.has(x.localId)
       && !known.has(pendingKey(x.date, x.amount, x.category))
   );
   return pcLines.concat(pending);
@@ -2072,6 +2184,13 @@ function renderReportDetail() {
     button.addEventListener('click', (event) => {
       event.stopPropagation();
       openForEdit(button.dataset.editLine);
+    });
+  });
+  document.querySelectorAll('#report-detail-lines [data-edit-pc]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const line = all.find((item) => item.expId === button.dataset.editPc);
+      if (line) startPcExpenseEdit(line);
     });
   });
   document.querySelectorAll('#report-detail-lines [data-view-receipt]').forEach((button) => {
