@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.14">
+<meta name="application-version" content="3.15">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -219,7 +219,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.14</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.15</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1099,6 +1099,22 @@ function retryScan(localId) {
   drainScanQueue(true);
 }
 
+function failUnconfiguredScans() {
+  const list = load();
+  let changed = false;
+  list.forEach((item) => {
+    if (item.ocrStatus !== 'pending' || !item.photos || !item.photos.length) return;
+    item.ocrStatus = 'failed';
+    item.ocrError = 'Receipt scanning is not configured in Settings';
+    changed = true;
+  });
+  if (!changed) return false;
+  save(list);
+  const current = editingLocalId && list.find((item) => item.localId === editingLocalId);
+  if (current) renderCaptureScanStatus(current);
+  return true;
+}
+
 function applyScanResult(item, result) {
   const fields = result && result.fields && typeof result.fields === 'object' ? result.fields : {};
   const confidence = result && result.confidence && typeof result.confidence === 'object' ? result.confidence : {};
@@ -1131,7 +1147,17 @@ async function drainScanQueue(userAsked) {
   if (scanInFlight || !isOnline()) return;
   const url = getScanUrl();
   const token = getScanToken();
-  if (!url || !token) return;
+  if (!url || !token) {
+    const changed = failUnconfiguredScans();
+    if (changed) {
+      renderQueue();
+      updateSyncStrip();
+    }
+    if (userAsked) showToast(changed
+      ? 'Receipt scan failed: configure receipt scanning in Settings.'
+      : 'Receipt scanning is not configured in Settings.');
+    return;
+  }
   scanInFlight = true;
   const list = load();
   let changed = false;

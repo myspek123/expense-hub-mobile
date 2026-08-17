@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.14"' in HTML
-    assert '>v3.14</span>' in HTML
+    assert 'content="3.15"' in HTML
+    assert '>v3.15</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v34" in service_worker
+    assert "eh-mobile-v35" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.16';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -61,6 +61,14 @@ def test_a_failed_scan_says_what_went_wrong():
     markup = HTML[HTML.index("function scanStatusMarkup(item)") :]
     markup = markup[: markup.index("function renderCaptureScanStatus")]
     assert "item.ocrError" in markup
+
+
+def test_a_pending_scan_cannot_stay_pending_without_scan_configuration():
+    drain = HTML[HTML.index("async function drainScanQueue") :]
+    drain = drain[: drain.index("async function saveCapture")]
+    assert "item.ocrStatus = 'failed'" in drain
+    assert "Receipt scanning is not configured in Settings" in drain
+    assert "if (!url || !token)" in drain
 
 
 def test_a_report_the_pc_never_took_can_be_removed_from_the_phone():
