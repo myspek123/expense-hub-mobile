@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.5">
+<meta name="application-version" content="3.6">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -208,7 +208,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.5</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.6</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1747,6 +1747,11 @@ async function fetchReports() {
             item.awaitingPcUpdate = false;
             item.baseValues = pcEditValues(pc);
             changed = true;
+          } else if (pcLineMatchesLocalExceptReport(item, pc)) {
+            // The PCExpenses response can still be the old report snapshot:
+            // the PC has not pulled the phone's report move yet. Keep the
+            // phone's pending destination instead of treating that stale
+            // report reference as a PC-side decision.
           } else {
             // The PC chose its own version. The phone is a capture device, so
             // the PC's values now replace the pending local request.
@@ -1784,13 +1789,17 @@ function amountKey(value) {
 }
 
 function pcLineMatchesLocal(item, pc) {
+  return pcLineMatchesLocalExceptReport(item, pc)
+    && String(pc.reportRef ?? '').trim() === String(item.reportRef ?? '').trim();
+}
+
+function pcLineMatchesLocalExceptReport(item, pc) {
   return String(pc.date ?? '').slice(0, 10) === String(item.date ?? '').slice(0, 10)
     && amountKey(pc.amount) === amountKey(item.amount)
     && String(pc.currency ?? '').trim().toUpperCase() === String(item.currency ?? '').trim().toUpperCase()
     && String(pc.category ?? '').trim() === String(item.category ?? '').trim()
     && String(pc.description ?? '').trim() === String(item.description ?? '').trim()
-    && String(pc.paidWith ?? '').trim() === String(item.paidWith ?? '').trim()
-    && String(pc.reportRef ?? '').trim() === String(item.reportRef ?? '').trim();
+    && String(pc.paidWith ?? '').trim() === String(item.paidWith ?? '').trim();
 }
 
 // Maps a PC flow code back to the phone's own type label where one exists

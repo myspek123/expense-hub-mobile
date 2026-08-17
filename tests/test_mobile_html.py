@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.5"' in HTML
-    assert '>v3.5</span>' in HTML
+    assert 'content="3.6"' in HTML
+    assert '>v3.6</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v25" in service_worker
+    assert "eh-mobile-v26" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.14';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -220,6 +220,14 @@ def test_pc_deleted_capture_is_discardable_but_live_pc_line_is_protected():
     assert "if (deletedOnPc(item)) return false;" in owns
     assert "!line.deleted" in owns
     assert "The PC removed its expense already." in HTML
+
+
+def test_pending_report_move_survives_a_refresh_before_pc_pull():
+    refresh = HTML[HTML.index("if (pc && item.awaitingPcUpdate)") :]
+    refresh = refresh[: refresh.index("function amountKey")]
+    assert "function pcLineMatchesLocalExceptReport(item, pc)" in HTML
+    assert "} else if (pcLineMatchesLocalExceptReport(item, pc)) {" in refresh
+    assert "old report snapshot" in refresh
 
 
 # -- 2026-08-02: Medical on both profiles, Queue renamed Unfiled, report
