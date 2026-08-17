@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.15">
+<meta name="application-version" content="3.16">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -219,7 +219,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.15</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.16</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1847,8 +1847,22 @@ function updateSyncStrip(busyMessage) {
 // says what happened when it finishes.
 let syncInFlight = false;
 
+async function syncFetch(url, options) {
+  if (typeof AbortController === 'undefined') return fetch(url, options);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25000);
+  try {
+    return await fetch(url, Object.assign({}, options || {}, { signal: controller.signal }));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function attemptSync(userAsked) {
-  if (syncInFlight) return;
+  if (syncInFlight) {
+    if (userAsked) showToast('A sync is already in progress. Please wait.');
+    return;
+  }
   const url = localStorage.getItem(URL_KEY);
   if (!url) {
     markScriptVersionUnknown();
@@ -1873,7 +1887,7 @@ async function attemptSync(userAsked) {
       if (item.synced) continue;
       try {
         const payload = Object.assign({}, item, { code: getSyncCode() });
-        const res = await fetch(url, { method: 'POST', body: JSON.stringify(payload) });
+        const res = await syncFetch(url, { method: 'POST', body: JSON.stringify(payload) });
         const json = await res.json();
         rememberEndpointVersion(json);
         if (json.ok) {
@@ -1951,7 +1965,7 @@ async function fetchReports() {
   const code = getSyncCode();
   const codePart = code ? '&code=' + encodeURIComponent(code) : '';
   try {
-    const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'action=reports' + codePart);
+    const res = await syncFetch(url + (url.includes('?') ? '&' : '?') + 'action=reports' + codePart);
     const json = await res.json();
     rememberEndpointVersion(json);
     if (json.ok) {
@@ -1965,7 +1979,7 @@ async function fetchReports() {
     /* offline or endpoint not updated yet -- reports tab just stays on last cache */
   }
   try {
-    const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'action=expenses' + codePart);
+    const res = await syncFetch(url + (url.includes('?') ? '&' : '?') + 'action=expenses' + codePart);
     const json = await res.json();
     rememberEndpointVersion(json);
     if (json.ok) {
