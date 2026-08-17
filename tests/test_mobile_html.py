@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.17"' in HTML
-    assert '>v3.17</span>' in HTML
+    assert 'content="3.19"' in HTML
+    assert '>v3.19</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v37" in service_worker
+    assert "eh-mobile-v39" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.16';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -264,6 +264,16 @@ def test_pending_report_move_survives_a_refresh_before_pc_pull():
     assert "pcLineMatchesLocalExceptReport(item, pc)" in refresh
     assert "pcLineMatchesBase(item, pc)" in refresh
     assert "old report snapshot" in refresh
+
+
+def test_unacknowledged_pc_snapshot_never_erases_pending_phone_values():
+    refresh = HTML[HTML.index("if (pc && item.awaitingPcUpdate)") :]
+    refresh = refresh[: refresh.index("function amountKey")]
+    assert "item.syncMismatch = true;" in refresh
+    assert "Sync mismatch — phone data kept" in HTML
+    mismatch = refresh[refresh.index("} else {\n            // No explicit acknowledgement") :]
+    assert "item.description = pc.description" not in mismatch
+    assert "item.amount = pc.amount" not in mismatch
 
 
 def test_opening_a_current_pc_line_refreshes_the_mobile_conflict_baseline():

@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.17">
+<meta name="application-version" content="3.19">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -219,7 +219,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.17</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.19</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1528,6 +1528,7 @@ function queueState(item) {
   if (deletedOnPc(item)) return { key: 'gone', label: 'Removed on the PC' };
   const pc = matchingPcLine(item);
   if (pc && pc.mobileEditConflict) return { key: 'conflict', label: 'Conflict on PC' };
+  if (item.syncMismatch) return { key: 'conflict', label: 'Sync mismatch — phone data kept' };
   if (item.awaitingPcUpdate) return { key: 'waiting', label: 'Waiting for PC confirmation' };
   if (pc) {
     return { key: 'synced', label: 'PC and phone agree' };
@@ -1832,7 +1833,7 @@ function updateSyncStrip(busyMessage) {
   const list = load();
   const pending = list.filter((i) => !i.synced).length;
   const awaiting = list.filter((i) => i.synced && i.awaitingPcUpdate);
-  const conflicts = awaiting.filter((i) => pcConflictFor(i)).length;
+  const conflicts = awaiting.filter((i) => pcConflictFor(i) || i.syncMismatch).length;
   if (pending) {
     strip.className = 'pending';
     strip.innerHTML = pending + ' not synced <button id="retry-btn" type="button">Sync now</button>';
@@ -2031,12 +2032,14 @@ async function fetchReports() {
                 item.reportType = FLOW_TO_PHONE_TYPE[pcReport.type] || pcReport.type || item.reportType;
               }
             }
+            item.syncMismatch = false;
             item.awaitingPcUpdate = false;
             item.baseValues = pcEditValues(pc);
             changed = true;
           } else if (pcLineMatchesLocal(item, pc)) {
             // Backward compatibility for rows written before the token: an
             // exact line match is still safe to acknowledge.
+            item.syncMismatch = false;
             item.awaitingPcUpdate = false;
             item.baseValues = pcEditValues(pc);
             changed = true;
@@ -2047,22 +2050,13 @@ async function fetchReports() {
             // pending values instead of treating that stale response as a
             // PC-side decision.
           } else {
-            // The PC chose its own version. The phone is a capture device, so
-            // the PC's values now replace the pending local request.
-            item.date = pc.date ?? item.date;
-            item.category = pc.category ?? item.category;
-            item.amount = pc.amount ?? item.amount;
-            item.currency = pc.currency ?? item.currency;
-            item.description = pc.description ?? item.description;
-            item.paidWith = pc.paidWith ?? item.paidWith;
-            item.reportRef = pc.reportRef ?? item.reportRef;
-            const pcReport = getCachedReports().find((report) => report.reportRef === item.reportRef);
-            if (pcReport) {
-              item.reportName = pcReport.name || item.reportName;
-              item.reportType = FLOW_TO_PHONE_TYPE[pcReport.type] || pcReport.type || item.reportType;
-            }
-            item.baseValues = pcEditValues(pc);
-            item.awaitingPcUpdate = false;
+            // No explicit acknowledgement means the PC response is stale,
+            // incomplete, or from a different sync round. Never erase the
+            // phone's pending values in that case. Keep the phone request and
+            // mark the mismatch visibly; the PC pull will create the normal
+            // field-level conflict, and only its token-bearing decision may
+            // replace these values.
+            item.syncMismatch = true;
             changed = true;
           }
         }
@@ -2516,9 +2510,11 @@ function localLinesForReport(reportRef) {
       // the user can tell them apart.
       pendingLabel: item.deleteRequested
         ? 'Deletion requested on PC'
-        : item.synced
-          ? (pcConflictFor(item) ? 'Conflict on PC' : 'Waiting for PC confirmation')
-        : 'Not synced',
+        : item.syncMismatch
+          ? 'Sync mismatch — phone data kept'
+          : item.synced
+            ? (pcConflictFor(item) ? 'Conflict on PC' : 'Waiting for PC confirmation')
+          : 'Not synced',
     }));
 }
 
@@ -2550,7 +2546,9 @@ function mergedLinesForReport(reportRef) {
       pending: true,
       pendingLabel: edit.deleteRequested
         ? 'Deletion requested on PC'
-        : (line.mobileEditConflict ? 'Conflict on PC' : 'Waiting for PC confirmation'),
+        : edit.syncMismatch
+          ? 'Sync mismatch — phone data kept'
+          : (line.mobileEditConflict ? 'Conflict on PC' : 'Waiting for PC confirmation'),
       mobileDeleteError: edit.deleteError || line.mobileDeleteError || '',
       hasReceipt: line.hasReceipt
     });
