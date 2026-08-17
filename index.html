@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.3">
+<meta name="application-version" content="3.4">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -208,7 +208,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.3</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.4</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1435,10 +1435,15 @@ function syncDisplayValues(item) {
 
 function pcOwnsCapture(item) {
   if (!item) return false;
+  // A tombstone means the PC deliberately removed the line. It was imported
+  // once, but it no longer belongs to the PC; keeping it protected here made
+  // the phone-only discard control disappear for exactly those stuck captures.
+  if (deletedOnPc(item)) return false;
   if (item.pcTakenAt) return true;
   return getCachedExpenses().some((line) =>
-    (item.expId && line.expId === item.expId)
+    !line.deleted && ((item.expId && line.expId === item.expId)
       || (item.localId && line.localId === item.localId)
+    )
   );
 }
 

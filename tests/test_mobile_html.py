@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.3"' in HTML
-    assert '>v3.3</span>' in HTML
+    assert 'content="3.4"' in HTML
+    assert '>v3.4</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v23" in service_worker
+    assert "eh-mobile-v24" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.14';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -212,6 +212,13 @@ def test_clearing_keeps_every_other_capture():
     # filter out the matches, save the rest -- never a blanket wipe of the store
     assert "load().filter((item) => !predicate(item) || pcOwnsCapture(item))" in remove
     assert "save(kept)" in remove
+
+
+def test_pc_deleted_capture_is_discardable_but_live_pc_line_is_protected():
+    owns = HTML[HTML.index("function pcOwnsCapture(item)") :]
+    owns = owns[: owns.index("// Clearing this list by hand")]
+    assert "if (deletedOnPc(item)) return false;" in owns
+    assert "!line.deleted" in owns
 
 
 # -- 2026-08-02: Medical on both profiles, Queue renamed Unfiled, report
