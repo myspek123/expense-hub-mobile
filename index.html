@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.9">
+<meta name="application-version" content="3.10">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -110,6 +110,7 @@
   .qrow .status.pending { background: var(--amber-bg); color: var(--amber); }
   .qrow .status.waiting { background: #eef2fa; color: var(--navy); }
   .qrow .status.synced { background: var(--green-bg); color: var(--green); }
+  .qrow .status.conflict { background: var(--amber-bg); color: var(--amber); font-weight: 700; }
   /* Grey, not red: the PC discarding a capture you asked it to discard
      is a finished job, not a failure. Red is for failures. */
   .qrow .status.gone { background: #eceff4; color: var(--muted); text-decoration: line-through; }
@@ -208,7 +209,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.9</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.10</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1163,7 +1164,8 @@ async function saveCapture(opts) {
     ocrFillableFields: OCR_FIELDS.filter((name) => !manualFields.has(name)),
     ocrImageHash: ocrImageHash,
     synced: false,
-    awaitingPcUpdate: false
+    awaitingPcUpdate: false,
+    syncToken: uid()
   };
   if (isEdit) {
     const idx = list.findIndex((i) => i.localId === editingLocalId);
@@ -1231,7 +1233,8 @@ document.getElementById('f-many').addEventListener('change', async (event) => {
         ocrFields: [], ocrManualFields: [], ocrFillableFields: OCR_FIELDS.slice(),
         ocrImageHash: '',
         synced: false,
-        awaitingPcUpdate: false
+        awaitingPcUpdate: false,
+        syncToken: uid()
       });
       added += 1;
     } catch (err) {
@@ -1383,8 +1386,7 @@ function pruneQueueForSentReports() {
   list.forEach((item) => {
     if (!item.synced) return;
     const live = cachedExpenses.filter((line) => !line.deleted);
-  const pc = live.find((line) => line.localId && line.localId === item.localId)
-      || live.find((line) => pendingKey(line.date, line.amount, line.category) === pendingKey(item.date, item.amount, item.category));
+    const pc = matchingPcLineIn(item, live);
     if (pc && pc.pcTakenAt && !item.pcTakenAt) item.pcTakenAt = pc.pcTakenAt;
     const taken = Date.parse(item.pcTakenAt || '');
     item.expired = Number.isFinite(taken) && Date.now() - taken >= 30 * 24 * 60 * 60 * 1000;
@@ -1412,9 +1414,11 @@ function queueState(item) {
   // it a deleted capture reads "Waiting for PC" for ever, which is what the
   // user hit on 2026-08-16 with a 0 EUR row he could not explain or shift.
   if (deletedOnPc(item)) return { key: 'gone', label: 'Removed on the PC' };
-  if (item.awaitingPcUpdate) return { key: 'waiting', label: 'Waiting for PC' };
-  if (matchingPcLine(item)) {
-    return { key: 'synced', label: 'On the PC' };
+  const pc = matchingPcLine(item);
+  if (pc && pc.mobileEditConflict) return { key: 'conflict', label: 'Conflict on PC' };
+  if (item.awaitingPcUpdate) return { key: 'waiting', label: 'Waiting for PC confirmation' };
+  if (pc) {
+    return { key: 'synced', label: 'PC and phone agree' };
   }
   if (item.sentWarning) return { key: 'waiting', label: 'Report sent on PC' };
   return { key: 'waiting', label: 'Waiting for PC' };
@@ -1431,13 +1435,27 @@ function deletedOnPc(item) {
 }
 
 function matchingPcLine(item) {
-  const pcLines = getCachedExpenses();
+  return matchingPcLineIn(item, getCachedExpenses());
+}
+
+function matchingPcLineIn(item, pcLines) {
   if (!item) return null;
-  return pcLines.find((line) => item.expId && line.expId && line.expId === item.expId)
-    || pcLines.find((line) => item.localId && line.localId && line.localId === item.localId)
-    || pcLines.find((line) => pendingKey(line.date, line.amount, line.category)
-      === pendingKey(item.date, item.amount, item.category))
-    || null;
+  // Once either stable identity exists, never guess by date/amount/category:
+  // that guess is how a stale 47 row can be paired with a phone's 46 draft.
+  if (item.expId) return pcLines.find((line) => line.expId === item.expId) || null;
+  if (item.localId) return pcLines.find((line) => line.localId === item.localId) || null;
+  return pcLines.find((line) => pendingKey(line.date, line.amount, line.category)
+    === pendingKey(item.date, item.amount, item.category)) || null;
+}
+
+function pcEditAcknowledged(item, pc) {
+  return Boolean(item && pc && item.syncToken && pc.mobileEditToken
+    && String(item.syncToken) === String(pc.mobileEditToken));
+}
+
+function pcConflictFor(item) {
+  const pc = matchingPcLine(item);
+  return pc && pc.mobileEditConflict ? pc : null;
 }
 
 function syncDisplayValues(item) {
@@ -1615,12 +1633,20 @@ function updateSyncStrip(busyMessage) {
   }
   const list = load();
   const pending = list.filter((i) => !i.synced).length;
-  if (!pending) {
-    strip.className = 'ok';
-    strip.innerHTML = 'All synced <button id="retry-btn" type="button">Sync now</button>';
-  } else {
+  const awaiting = list.filter((i) => i.synced && i.awaitingPcUpdate);
+  const conflicts = awaiting.filter((i) => pcConflictFor(i)).length;
+  if (pending) {
     strip.className = 'pending';
     strip.innerHTML = pending + ' not synced <button id="retry-btn" type="button">Sync now</button>';
+  } else if (conflicts) {
+    strip.className = 'pending';
+    strip.innerHTML = conflicts + ' conflict on PC <button id="retry-btn" type="button">Sync now</button>';
+  } else if (awaiting.length) {
+    strip.className = 'pending';
+    strip.innerHTML = awaiting.length + ' waiting for PC confirmation <button id="retry-btn" type="button">Sync now</button>';
+  } else {
+    strip.className = 'ok';
+    strip.innerHTML = 'PC and phone agree <button id="retry-btn" type="button">Sync now</button>';
   }
   document.getElementById('retry-btn').addEventListener('click', () => attemptSync(true));
 }
@@ -1680,9 +1706,12 @@ async function attemptSync(userAsked) {
   if (failed) {
     showToast("Couldn't reach the sync. Check the URL and code in Settings, then try again.", true);
   } else if (sent) {
-    showToast(`Sent ${sent} to the Sheet. The PC picks them up on its next run.`);
+    showToast(`Sent ${sent} to the Sheet. Waiting for PC confirmation.`);
   } else {
-    showToast('Nothing was waiting to send. The PC list is up to date.');
+    const waiting = load().filter((item) => item.awaitingPcUpdate).length;
+    showToast(waiting
+      ? `${waiting} change${waiting === 1 ? '' : 's'} still waiting for PC confirmation.`
+      : 'Nothing was waiting to send. The PC list is up to date.');
   }
 }
 
@@ -1756,16 +1785,37 @@ async function fetchReports() {
       const queue = load();
       let changed = false;
       queue.forEach((item) => {
-        const pc = expenses.find((line) => item.expId && line.expId && line.expId === item.expId)
-          || expenses.find((line) => line.localId && line.localId === item.localId)
-          || expenses.find((line) => pendingKey(line.date, line.amount, line.category) === pendingKey(item.date, item.amount, item.category));
+        const pc = matchingPcLineIn(item, expenses);
         if (pc && pc.expId && item.expId !== pc.expId) { item.expId = pc.expId; changed = true; }
         if (pc && pc.pcTakenAt && !item.pcTakenAt) { item.pcTakenAt = pc.pcTakenAt; changed = true; }
         if (pc && item.awaitingPcUpdate) {
           if (pc.mobileEditConflict) {
             // The PC is waiting for its inline conflict decision. Keep the
             // phone request visible as pending until that decision is made.
+          } else if (pcEditAcknowledged(item, pc)) {
+            // The PC writes this token after it has processed this request.
+            // If the values differ, the PC deliberately kept its version
+            // after a conflict; that is still a finished, explicit result.
+            if (!pcLineMatchesLocal(item, pc)) {
+              item.date = pc.date ?? item.date;
+              item.category = pc.category ?? item.category;
+              item.amount = pc.amount ?? item.amount;
+              item.currency = pc.currency ?? item.currency;
+              item.description = pc.description ?? item.description;
+              item.paidWith = pc.paidWith ?? item.paidWith;
+              item.reportRef = pc.reportRef ?? item.reportRef;
+              const pcReport = getCachedReports().find((report) => report.reportRef === item.reportRef);
+              if (pcReport) {
+                item.reportName = pcReport.name || item.reportName;
+                item.reportType = FLOW_TO_PHONE_TYPE[pcReport.type] || pcReport.type || item.reportType;
+              }
+            }
+            item.awaitingPcUpdate = false;
+            item.baseValues = pcEditValues(pc);
+            changed = true;
           } else if (pcLineMatchesLocal(item, pc)) {
+            // Backward compatibility for rows written before the token: an
+            // exact line match is still safe to acknowledge.
             item.awaitingPcUpdate = false;
             item.baseValues = pcEditValues(pc);
             changed = true;
@@ -2095,7 +2145,8 @@ function startPcExpenseEdit(line) {
     ocrFillableFields: OCR_FIELDS.slice(),
     ocrImageHash: '',
     synced: true,
-    awaitingPcUpdate: false
+    awaitingPcUpdate: false,
+    syncToken: uid()
   };
   try {
     save(load().concat([draft]));
@@ -2273,7 +2324,9 @@ function localLinesForReport() {
       // Synced means the Sheet has it; the PC still has to pull it in and push
       // its list back before it becomes a real line. Two different waits, and
       // the user can tell them apart.
-      pendingLabel: item.synced ? 'Waiting for PC' : 'Not synced',
+      pendingLabel: item.synced
+        ? (pcConflictFor(item) ? 'Conflict on PC' : 'Waiting for PC confirmation')
+        : 'Not synced',
     }));
 }
 
@@ -2283,9 +2336,17 @@ function detailLinesForReport() {
     queue.filter((item) => item.expId && item.awaitingPcUpdate)
       .map((item) => [item.expId, item])
   );
+  const pendingByLocalId = new Map(
+    queue.filter((item) => item.localId && item.awaitingPcUpdate)
+      .map((item) => [item.localId, item])
+  );
   const pcLines = getCachedExpenses().filter((x) => x.reportRef === currentDetailReportRef).map((line) => {
-    const edit = pendingEdits.get(line.expId);
+    const edit = pendingEdits.get(line.expId) || pendingByLocalId.get(line.localId);
     if (!edit) return line;
+    // A report move is one logical line. Hide the old PC location until the
+    // PC confirms the move; the local pending line is rendered in the new
+    // report below instead of showing two expenses for the same capture.
+    if (String(edit.reportRef || '') !== String(currentDetailReportRef || '')) return null;
     return Object.assign({}, line, {
       localId: edit.localId,
       date: edit.date,
@@ -2295,18 +2356,17 @@ function detailLinesForReport() {
       amount: edit.amount,
       currency: edit.currency,
       pending: true,
-      pendingLabel: 'Waiting for PC',
+      pendingLabel: line.mobileEditConflict ? 'Conflict on PC' : 'Waiting for PC confirmation',
       hasReceipt: line.hasReceipt
     });
-  });
+  }).filter(Boolean);
   const knownLocalIds = new Set(pcLines.map((x) => x.localId).filter(Boolean));
   const known = new Set(pcLines.map((x) => pendingKey(x.date, x.amount, x.category)));
   // Once the PC has the line, the PC's copy wins: it carries the real exp_id and
   // whatever was changed on the desktop. Matching on date, amount and category
   // because the phone's capture never learns the exp_id it was given.
   const pending = localLinesForReport().filter(
-    (x) => !pendingEdits.has(x.expId)
-      && !knownLocalIds.has(x.localId)
+    (x) => !knownLocalIds.has(x.localId)
       && !known.has(pendingKey(x.date, x.amount, x.category))
   );
   return pcLines.concat(pending);

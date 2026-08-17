@@ -28,12 +28,12 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.9"' in HTML
-    assert '>v3.9</span>' in HTML
+    assert 'content="3.10"' in HTML
+    assert '>v3.10</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v29" in service_worker
+    assert "eh-mobile-v30" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
-    assert "var VERSION = '1.14';" in app_script
+    assert "var VERSION = '1.15';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
     assert 'id="script-version"' in HTML
     assert "function rememberEndpointVersion(payload)" in HTML
@@ -493,6 +493,38 @@ def test_sync_tab_shows_pc_values_for_a_local_id_match():
     assert "When a line is on the PC, this tab shows the PC's amount, category and description." in HTML
     assert "if (item.awaitingPcUpdate) return item;" in HTML
     assert "item.awaitingPcUpdate = true;" in HTML
+
+
+def test_sheet_write_is_not_called_pc_confirmed_sync():
+    strip = HTML[HTML.index("function updateSyncStrip(busyMessage)"):]
+    strip = strip[: strip.index("// Sync now")]
+    assert "const awaiting = list.filter((i) => i.synced && i.awaitingPcUpdate);" in strip
+    assert "waiting for PC confirmation" in strip
+    assert "PC and phone agree" in strip
+    assert "All synced" not in strip
+
+
+def test_phone_edit_has_a_pc_ack_token_and_conflict_state():
+    assert "syncToken: uid()" in HTML
+    assert "function pcEditAcknowledged(item, pc)" in HTML
+    assert "mobileEditToken" in HTML
+    queue = HTML[HTML.index("function queueState(item)"):]
+    queue = queue[: queue.index("function deletedOnPc(item)")]
+    assert "Conflict on PC" in queue
+    assert "Waiting for PC confirmation" in queue
+    matching = HTML[HTML.index("function matchingPcLineIn(item, pcLines)"):]
+    matching = matching[: matching.index("function pcEditAcknowledged")]
+    assert "if (item.expId) return" in matching
+    assert "if (item.localId) return" in matching
+
+
+def test_pending_report_move_is_one_logical_line_not_old_and_new_rows():
+    detail = HTML[HTML.index("function detailLinesForReport()"):]
+    detail = detail[: detail.index("function monthBand")]
+    assert "pendingByLocalId" in detail
+    assert "return null;" in detail
+    assert "!knownLocalIds.has(x.localId)" in detail
+    assert "!pendingEdits.has(x.expId)" not in detail
 
 
 def test_corrected_pc_line_keeps_the_phone_receipt_by_local_id():
