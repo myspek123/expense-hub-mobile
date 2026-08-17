@@ -28,13 +28,14 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.19"' in HTML
-    assert '>v3.19</span>' in HTML
+    assert 'content="3.20"' in HTML
+    assert '>v3.20</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v39" in service_worker
+    assert "eh-mobile-v40" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
-    assert "var VERSION = '1.16';" in app_script
+    assert "var VERSION = '1.17';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
+    assert "MOBILE_EDIT_RESOLUTION" in app_script
     assert 'id="script-version"' in HTML
     assert "function rememberEndpointVersion(payload)" in HTML
     assert "deployedScriptVersion = 'unknown'" in HTML
