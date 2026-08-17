@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.16">
+<meta name="application-version" content="3.17">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -219,7 +219,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.16</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.17</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1762,13 +1762,22 @@ function renderQueue() {
     const name = String(item.reportName || (report && report.name) || 'No report').trim();
     return `${type} · ${name}`;
   };
-  const noTypeNoReport = (item) => !String(item.reportType || '').trim()
-    && !String(item.reportName || '').trim()
-    && !item.reportRef;
+  const dateKey = (item) => String(item.date || '').slice(0, 10);
+  const changeKey = (item) => {
+    // uid() starts with the millisecond timestamp. It is the existing
+    // per-capture version marker, so an edit naturally moves that capture
+    // ahead of older work on the same date without adding another field to
+    // the phone's local data.
+    const match = String(item.syncToken || item.localId || '').match(/^m(\d+)/);
+    return match ? Number(match[1]) : 0;
+  };
+  // Sync is a work queue: newest expense dates first. Report grouping used to
+  // be the primary sort and made an older 2025 item appear above newer work.
   const ordered = list.slice().sort((a, b) =>
-    Number(noTypeNoReport(a)) - Number(noTypeNoReport(b))
+    Number(!dateKey(a)) - Number(!dateKey(b))
+      || dateKey(b).localeCompare(dateKey(a))
+      || changeKey(b) - changeKey(a)
       || groupLabel(a).localeCompare(groupLabel(b))
-      || String(b.date || '').localeCompare(String(a.date || ''))
       || String(b.localId || '').localeCompare(String(a.localId || ''))
   );
   let lastGroup = '';
@@ -2188,6 +2197,18 @@ It was never taken by the PC. Captures already in it stay on the Sync tab.`)) re
 
 function reportListSummary(report) {
   if (!report) return null;
+  // Once PCExpenses is cached, use the same merged view as report detail so a
+  // pending move cannot remain in the old report's total while disappearing
+  // from its line list. PCReports is still the fallback before that cache has
+  // arrived.
+  if (localStorage.getItem(EXPENSES_CACHE_KEY) !== null) {
+    const lines = mergedLinesForReport(report.reportRef).filter((line) => !line.deleted);
+    return {
+      expenseCount: lines.length,
+      total: lines.reduce((sum, line) => sum + (reportEurAmount(line) ?? 0), 0),
+      missingEurCount: lines.filter((line) => reportEurAmount(line) === null).length,
+    };
+  }
   if (report.expenseCount !== undefined && report.total !== undefined
       && report.expenseCount !== '' && report.total !== '') {
     return {
@@ -2196,15 +2217,7 @@ function reportListSummary(report) {
       missingEurCount: Number(report.missingEurCount) || 0,
     };
   }
-  // Compatibility with a PCReports sheet pushed before the summary columns
-  // existed. Once PCExpenses is cached, use the same EUR values as detail.
-  if (localStorage.getItem(EXPENSES_CACHE_KEY) === null) return null;
-  const lines = getCachedExpenses().filter((line) => line.reportRef === report.reportRef && !line.deleted);
-  return {
-    expenseCount: lines.length,
-    total: lines.reduce((sum, line) => sum + (reportEurAmount(line) ?? 0), 0),
-    missingEurCount: lines.filter((line) => reportEurAmount(line) === null).length,
-  };
+  return null;
 }
 
 function dropPendingReport(type, name) {
@@ -2479,9 +2492,9 @@ function reportLineAmountHtml(line) {
   return `${escapeHtml(paid)} <small class="detail-paid-eur">(${escapeHtml(phoneMoney(eur, 'EUR'))}${line.eurEstimated ? ' est.' : ''})</small>`;
 }
 
-function localLinesForReport() {
+function localLinesForReport(reportRef) {
   return load()
-    .filter((item) => item.reportRef && item.reportRef === currentDetailReportRef)
+    .filter((item) => item.reportRef && item.reportRef === reportRef)
     .map((item) => ({
       localId: item.localId,
       expId: item.expId || '',
@@ -2509,7 +2522,7 @@ function localLinesForReport() {
     }));
 }
 
-function detailLinesForReport() {
+function mergedLinesForReport(reportRef) {
   const queue = load();
   const pendingEdits = new Map(
     queue.filter((item) => item.expId && item.awaitingPcUpdate)
@@ -2519,13 +2532,13 @@ function detailLinesForReport() {
     queue.filter((item) => item.localId && item.awaitingPcUpdate)
       .map((item) => [item.localId, item])
   );
-  const pcLines = getCachedExpenses().filter((x) => x.reportRef === currentDetailReportRef).map((line) => {
+  const pcLines = getCachedExpenses().filter((x) => x.reportRef === reportRef).map((line) => {
     const edit = pendingEdits.get(line.expId) || pendingByLocalId.get(line.localId);
     if (!edit) return line;
     // A report move is one logical line. Hide the old PC location until the
     // PC confirms the move; the local pending line is rendered in the new
     // report below instead of showing two expenses for the same capture.
-    if (String(edit.reportRef || '') !== String(currentDetailReportRef || '')) return null;
+    if (String(edit.reportRef || '') !== String(reportRef || '')) return null;
     return Object.assign({}, line, {
       localId: edit.localId,
       date: edit.date,
@@ -2547,11 +2560,15 @@ function detailLinesForReport() {
   // Once the PC has the line, the PC's copy wins: it carries the real exp_id and
   // whatever was changed on the desktop. Matching on date, amount and category
   // because the phone's capture never learns the exp_id it was given.
-  const pending = localLinesForReport().filter(
+  const pending = localLinesForReport(reportRef).filter(
     (x) => !knownLocalIds.has(x.localId)
       && !known.has(pendingKey(x.date, x.amount, x.category))
   );
   return pcLines.concat(pending);
+}
+
+function detailLinesForReport() {
+  return mergedLinesForReport(currentDetailReportRef);
 }
 
 function openReportExpense(line) {

@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.16"' in HTML
-    assert '>v3.16</span>' in HTML
+    assert 'content="3.17"' in HTML
+    assert '>v3.17</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v36" in service_worker
+    assert "eh-mobile-v37" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.16';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -584,7 +584,7 @@ def test_phone_edit_has_a_pc_ack_token_and_conflict_state():
 
 
 def test_pending_report_move_is_one_logical_line_not_old_and_new_rows():
-    detail = HTML[HTML.index("function detailLinesForReport()"):]
+    detail = HTML[HTML.index("function mergedLinesForReport(reportRef)"):]
     detail = detail[: detail.index("function monthBand")]
     assert "pendingByLocalId" in detail
     assert "return null;" in detail
@@ -593,7 +593,7 @@ def test_pending_report_move_is_one_logical_line_not_old_and_new_rows():
 
 
 def test_corrected_pc_line_keeps_the_phone_receipt_by_local_id():
-    detail = HTML[HTML.index("function detailLinesForReport()"):]
+    detail = HTML[HTML.index("function mergedLinesForReport(reportRef)"):]
     detail = detail[: detail.index("function monthBand")]
     assert "const knownLocalIds = new Set(pcLines.map((x) => x.localId).filter(Boolean));" in detail
     assert "!knownLocalIds.has(x.localId)" in detail
@@ -653,11 +653,12 @@ def test_scan_status_is_visible_inside_the_open_expense_until_done():
     assert "return '';" in scan[:700]
 
 
-def test_unfiled_queue_group_is_last_and_report_lines_have_a_scan_icon():
+def test_sync_queue_is_date_descending_and_report_lines_have_a_scan_icon():
     queue = HTML[HTML.index("function renderQueue()"):]
     queue = queue[: queue.index("function updateSyncStrip")]
-    assert "noTypeNoReport" in queue
-    assert "Number(noTypeNoReport(a)) - Number(noTypeNoReport(b))" in queue
+    assert "const dateKey = (item)" in queue
+    assert "dateKey(b).localeCompare(dateKey(a))" in queue
+    assert "changeKey(b) - changeKey(a)" in queue
     assert "scanned-ico" in HTML
     assert "title=\"Scanned\"" in HTML
 
