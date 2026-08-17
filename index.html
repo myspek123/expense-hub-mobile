@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.7">
+<meta name="application-version" content="3.8">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -208,7 +208,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.7</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.8</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1290,8 +1290,14 @@ function openForEdit(localId) {
   // the report view. Keep a just-saved local edit visible until PCExpenses
   // catches up, otherwise the form jumps back to the previous PC snapshot.
   const pc = matchingPcLine(item);
+  const pcReport = pc && !item.awaitingPcUpdate
+    ? getCachedReports().find((report) => report.reportRef === pc.reportRef)
+    : null;
   const source = pc && !item.awaitingPcUpdate
     ? Object.assign({}, item, {
+      reportType: pcReport ? (FLOW_TO_PHONE_TYPE[pcReport.type] || pcReport.type || item.reportType) : item.reportType,
+      reportName: pcReport ? (pcReport.name || item.reportName) : item.reportName,
+      reportRef: pc.reportRef ?? item.reportRef,
       date: pc.date ?? item.date,
       category: pc.category ?? item.category,
       amount: pc.amount ?? item.amount,
@@ -1304,6 +1310,11 @@ function openForEdit(localId) {
     // The edit form is showing the PC's current line. Make that line the
     // conflict baseline before the phone creates its next request; otherwise
     // a legitimate edit after a PC edit is falsely reported as a clash.
+    item.reportRef = pc.reportRef ?? item.reportRef;
+    if (pcReport) {
+      item.reportType = FLOW_TO_PHONE_TYPE[pcReport.type] || pcReport.type || item.reportType;
+      item.reportName = pcReport.name || item.reportName;
+    }
     item.baseValues = pcEditValues(pc);
     const baselineIndex = list.findIndex((entry) => entry.localId === localId);
     if (baselineIndex >= 0) {

@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.7"' in HTML
-    assert '>v3.7</span>' in HTML
+    assert 'content="3.8"' in HTML
+    assert '>v3.8</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v27" in service_worker
+    assert "eh-mobile-v28" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.14';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -236,6 +236,8 @@ def test_opening_a_current_pc_line_refreshes_the_mobile_conflict_baseline():
     edit = edit[: edit.index("// 2026-08-02 ruling")]
     assert "item.baseValues = pcEditValues(pc);" in edit
     assert "baselineIndex" in edit
+    assert "reportRef: pc.reportRef ?? item.reportRef" in edit
+    assert "const pcReport" in edit
 
 
 # -- 2026-08-02: Medical on both profiles, Queue renamed Unfiled, report
