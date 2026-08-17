@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.4">
+<meta name="application-version" content="3.5">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -208,7 +208,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.4</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.5</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1490,7 +1490,7 @@ function renderQueueActions() {
   const local = document.getElementById('clear-phone-only');
   if (local) {
     local.addEventListener('click', () => {
-      if (!confirm(`Remove ${phoneOnly.length} capture(s) not yet imported by the PC?\n\nThey exist only in this phone queue. Their photos go with them and cannot be recovered.`)) return;
+      if (!confirm(`Remove ${phoneOnly.length} capture(s) the PC does not currently have?\n\nSome may have been removed on the PC already; the rest were never imported. Their phone copies and photos go with them and cannot be recovered.`)) return;
       removeCaptures((item) => !pcOwnsCapture(item));
     });
   }
@@ -1510,7 +1510,10 @@ function discardCapture(localId) {
   const loss = item.photos && item.photos.length
     ? 'Its receipt photo will be lost from this phone.'
     : 'This phone-only capture will be lost.';
-  if (!confirm(`Discard "${label}"?\n\n${loss} It has not been imported by the PC.`)) return;
+  const history = deletedOnPc(item)
+    ? 'The PC removed its expense already.'
+    : 'It has not been imported by the PC.';
+  if (!confirm(`Discard "${label}"?\n\n${loss} ${history}`)) return;
   save(list.filter((entry) => entry.localId !== localId));
   if (editingLocalId === localId) clearForm();
   renderQueue();

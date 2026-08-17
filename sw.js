@@ -1,4 +1,4 @@
-const CACHE = 'eh-mobile-v24';
+const CACHE = 'eh-mobile-v25';
 const SHELL = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', (event) => {
