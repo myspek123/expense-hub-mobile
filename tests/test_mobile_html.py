@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.12"' in HTML
-    assert '>v3.12</span>' in HTML
+    assert 'content="3.13"' in HTML
+    assert '>v3.13</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v32" in service_worker
+    assert "eh-mobile-v33" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.16';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -79,7 +79,7 @@ def test_a_report_the_pc_never_took_can_be_removed_from_the_phone():
 def test_add_many_makes_one_capture_per_photo():
     """The PC's drop zone shape, on the phone: thirty photos become thirty
     captures, each scanned on the PC. Not one capture with thirty photos."""
-    assert 'id="btn-many"' in HTML
+    assert 'id="edit-many"' in HTML
     assert 'id="f-many"' in HTML and 'multiple' in HTML
 
     handler = HTML[HTML.index("document.getElementById('f-many').addEventListener") :]
@@ -404,34 +404,38 @@ def test_queued_receipt_reads_the_base64_field_not_the_photo_object():
     # The queue stores { base64, name }. Mapping the object straight into src=
     # produced src="[object Object]" -- every receipt a broken image (13/08).
     assert "function dataUrlOf(shot)" in HTML
-    panel = HTML[HTML.index("function receiptPanelHtml(line)"):]
-    panel = panel[: panel.index("function openReportDetail")]
-    assert "dataUrlOf(shot)" in panel
+    panel = HTML[HTML.index("function renderAttachStrip()"):]
+    panel = panel[: panel.index("document.getElementById('f-photo')")]
+    assert "dataUrlOf(p)" in panel
     assert ".map((src) => `<img src=" not in HTML
     # The capture strip reads the same one helper, not its own copy.
     strip = HTML[HTML.index("function renderAttachStrip()"):]
     assert "dataUrlOf(p).startsWith('data:image')" in strip[:500]
 
 
-def test_phone_only_report_line_has_a_confirmed_discard_control():
-    panel = HTML[HTML.index("function receiptPanelHtml(line)"):]
-    panel = panel[: panel.index("async function fetchPcReceiptDataUrl")]
-    assert "data-discard-line" in panel
-    assert "Discard phone-only capture" in panel
-    assert "!pcOwnsCapture(local)" in panel
+def test_report_rows_open_review_without_report_detail_action_buttons():
     render = HTML[HTML.index("function renderReportDetail()"):]
     render = render[: render.index("function escapeHtml")]
-    assert "discardCapture(button.dataset.discardLine)" in render
+    assert "openReportExpense(line)" in render
+    assert "data-edit-line" not in render
+    assert "data-delete-pc-line" not in render
+    assert "function openReportExpense(line)" in HTML
 
 
-def test_pc_owned_expense_has_a_pc_delete_control_and_waits_for_confirmation():
-    panel = HTML[HTML.index("function receiptPanelHtml(line)"):]
-    panel = panel[: panel.index("async function fetchPcReceiptDataUrl")]
-    assert "Delete expense on PC" in panel
-    assert "data-delete-pc-line" in panel
+def test_edit_screen_has_one_confirmed_contextual_delete_icon():
+    assert 'id="edit-back" class="icon-action back hidden"' in HTML
+    assert 'id="edit-many" class="icon-action many"' in HTML
+    assert 'id="edit-delete"' in HTML
+    assert 'aria-label="Delete"' in HTML
+    footer = HTML[HTML.index('<div class="footer-btn" id="footer-capture">'):]
+    footer = footer[: footer.index('</div>')]
+    assert 'id="btn-quick-save"' in footer
+    assert 'id="btn-save"' in footer
+    assert 'id="edit-many"' not in footer
     assert "This phone copy will be removed only after the PC confirms" in HTML
     assert "function requestPcDelete(source)" in HTML
     assert "deleteRequested" in HTML
+    assert "function deleteCurrentEdit()" in HTML
 
 
 def test_refresh_returns_to_the_screen_the_user_was_on():
@@ -494,11 +498,8 @@ def test_a_line_this_phone_captured_can_be_edited_from_inside_the_report():
     # is matched by localId while it is still waiting, and by date/amount/
     # category once the PC has it, so it stays editable either way.
     assert "function localCaptureFor(line)" in HTML
-    assert 'data-edit-line="${escapeHtml(local.localId)}"' in HTML
-    assert "openForEdit(button.dataset.editLine)" in HTML
-    # On the opened panel, not the row, so looking at a receipt never starts an
-    # edit by accident.
-    assert "event.stopPropagation();" in HTML
+    assert "if (local) openForEdit(local.localId);" in HTML
+    assert "function openReportExpense(line)" in HTML
 
 
 def test_sync_tab_shows_pc_values_for_a_local_id_match():
@@ -554,15 +555,13 @@ def test_corrected_pc_line_keeps_the_phone_receipt_by_local_id():
     assert "const knownLocalIds = new Set(pcLines.map((x) => x.localId).filter(Boolean));" in detail
     assert "!knownLocalIds.has(x.localId)" in detail
     local_match = HTML[HTML.index("function localCaptureFor(line)"):]
-    local_match = local_match[: local_match.index("function receiptPanelHtml(line)")]
+    local_match = local_match[: local_match.index("function openReportExpense(line)")]
     assert "if (line.localId) return queue.find((item) => item.localId === line.localId) || null;" in local_match
-    panel = HTML[HTML.index("function receiptPanelHtml(line)"):]
-    panel = panel[: panel.index("async function fetchPcReceiptDataUrl")]
-    assert "if (line.hasReceipt)" in panel
-    assert "pcReceiptHtml(line)" not in panel
-    assert "data-view-receipt" not in panel
-    assert "Review expense" in panel
-    assert "isLtiReport" not in panel
+    assert "function openReportExpense(line)" in HTML
+    assert "renderAttachStrip()" in HTML
+    assert "data-view-receipt" not in HTML
+    assert "Review expense" not in HTML
+    assert "Delete expense on PC" not in HTML
 
 
 def test_pc_corrected_values_are_used_by_the_edit_form():

@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.12">
+<meta name="application-version" content="3.13">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -94,7 +94,15 @@
   .btn.ghost { background: #fff; color: var(--navy); }
   .btn.quick { border-color: var(--amber); color: #8a5711; background: #fffaf0; }
   .btn.small { flex: none; height: 40px; padding: 0 14px; font-size: 13px; }
-  .queue-discard { margin-left: 8px; }
+  .edit-banner { margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .edit-action-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .edit-action-left { display: flex; align-items: center; gap: 8px; }
+  .icon-action { width: 40px; height: 40px; flex: 0 0 40px; display: inline-grid; place-items: center; border: 1px solid currentColor; border-radius: 8px; background: #fff; padding: 0; }
+  .icon-action svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .icon-action.back { color: var(--navy); }
+  .icon-action.many { color: #7a3e9d; }
+  .icon-action.delete { color: var(--danger); margin-left: auto; }
+  .edit-banner-text { color: var(--amber); font-size: 12px; }
   #toast { position: fixed; left: 16px; right: 16px; bottom: 76px; padding: 10px 14px; border-radius: 8px; font-size: 13px; z-index: 30; display: none; }
   /* Amber, not red. Almost everything this toast says is information ("nothing
      was waiting to send"), and red reads as something broke. The user made the
@@ -198,28 +206,11 @@
   /* 44px, not 36: this is the control you tap after every single receipt. */
   .receipt-lightbox button { position: absolute; top: 12px; right: 14px; border: 0; background: #fff; color: var(--navy); border-radius: 50%; width: 44px; height: 44px; font-size: 26px; line-height: 1; }
   .exdetail .hint { font-size: 12px; }
-  /* Edit, inside the opened line. 44px so it meets the touch floor, and 14px
-     because it is a control the user reads. */
-  .line-edit {
-    display: block; width: 100%; min-height: 44px; margin-top: 10px;
-    border: 1px solid var(--navy); border-radius: 8px; background: #fff;
-    color: var(--navy); font-size: 14px; font-weight: 700;
-  }
-  .line-delete {
-    display: block; width: 100%; min-height: 44px; margin-top: 8px;
-    border: 1px solid #a32d2d; border-radius: 8px; background: #fff;
-    color: #a32d2d; font-size: 14px; font-weight: 700;
-  }
-  .line-discard {
-    display: block; width: 100%; min-height: 44px; margin-top: 8px;
-    border: 1px solid #a32d2d; border-radius: 8px; background: #fff;
-    color: #a32d2d; font-size: 14px; font-weight: 700;
-  }
 </style>
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.12</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.13</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -230,13 +221,21 @@
 
 <main>
   <section id="tab-capture" class="active">
-    <!-- Editing an expense used to have exactly one way out: Save. Opened from
-         a report to look at something, the only escape was to save a change
-         you did not want to make, or to hit a tab and leave the form still
-         holding the expense (user, 17/08/2026). Cancel is the way out. -->
-    <div id="edit-banner" class="hint" style="display:none;color:var(--amber);align-items:center;justify-content:space-between;gap:10px">
-      <span id="edit-banner-text"></span>
-      <button type="button" id="edit-cancel" class="btn ghost small" style="margin-left:10px">Cancel</button>
+    <div id="edit-banner" class="edit-banner">
+      <div class="edit-action-row">
+        <div class="edit-action-left">
+          <button type="button" id="edit-back" class="icon-action back hidden" aria-label="Back" title="Back">
+            <svg viewBox="0 0 24 24"><path d="M19 12H5"></path><path d="M12 19l-7-7 7-7"></path></svg>
+          </button>
+          <button type="button" id="edit-many" class="icon-action many" aria-label="Add many receipts" title="Add many receipts">
+            <svg viewBox="0 0 24 24"><rect x="4" y="5" width="14" height="14"></rect><path d="M7 2h13v13"></path><path d="M7 16l3-4 3 3 2-2 3 3"></path></svg>
+          </button>
+        </div>
+        <button type="button" id="edit-delete" class="icon-action delete hidden" aria-label="Delete" title="Delete">
+          <svg viewBox="0 0 24 24"><path d="M5 7h14"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 7l1-2h4l1 2"></path><path d="M7 7l1 13h8l1-13"></path></svg>
+        </button>
+      </div>
+      <span id="edit-banner-text" class="edit-banner-text"></span>
     </div>
     <div id="capture-scan-status" class="capture-scan-status" role="status" aria-live="polite"></div>
     <div class="field" id="report-field">
@@ -406,7 +405,6 @@
 
 <div class="footer-btn" id="footer-capture">
   <button class="btn quick" type="button" id="btn-quick-save">Quick save</button>
-  <button class="btn ghost" type="button" id="btn-many">Add many</button>
   <input class="hidden" id="f-many" type="file" accept="image/*,.pdf,application/pdf" multiple>
   <button class="btn primary" type="button" id="btn-save">Save</button>
 </div>
@@ -440,6 +438,7 @@ const PROFILE_TYPES = { Yaron: ['LTI', 'TP', 'INSEAD-YARON', 'MEDICAL'], Ella: [
 const PHONE_TYPE_TO_FLOW = { 'LTI': 'LTI', 'TP': 'TP', 'INSEAD-YARON': 'INSEAD-YARON', 'INSEAD-ELLA': 'ELLA', 'MEDICAL': 'MEDICAL' };
 let photos = [];
 let editingLocalId = null;
+let editingOrigin = { tab: 'capture', reportRef: '', report: null };
 // The PC-side receipt file for the expense being edited, so the edit screen
 // can offer it. Empty when this phone took its own photo, or when the PC has
 // not pushed since the sync script gained RECEIPT_FILE.
@@ -933,6 +932,23 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('#report-field')) document.getElementById('report-name-list').classList.add('hidden');
 });
 
+function renderEditBanner() {
+  const banner = document.getElementById('edit-banner');
+  const back = document.getElementById('edit-back');
+  const trash = document.getElementById('edit-delete');
+  const text = document.getElementById('edit-banner-text');
+  const editing = Boolean(editingLocalId);
+  if (banner) banner.style.display = 'flex';
+  if (back) back.classList.toggle('hidden', !editing);
+  if (trash) trash.classList.toggle('hidden', !editing);
+  if (text) {
+    const item = editing && editingLocalId
+      ? load().find((entry) => entry.localId === editingLocalId)
+      : null;
+    text.textContent = editing ? (item && item.expId ? 'Editing PC expense' : 'Editing phone capture') : '';
+  }
+}
+
 function clearForm() {
   editingLocalId = null;
   editingPcReceiptFile = '';
@@ -942,7 +958,7 @@ function clearForm() {
   selectedReportRef = '';
   manualFields = new Set();
   photoDirty = false;
-  document.getElementById('edit-banner').style.display = 'none';
+  renderEditBanner();
   document.getElementById('capture-scan-status').innerHTML = '';
   document.getElementById('report-field').classList.remove('bad');
   document.getElementById('f-report-type').value = '';
@@ -1205,7 +1221,7 @@ async function saveCapture(opts) {
 // Add many: pick a pile out of the gallery and get ONE capture per photo, the
 // same shape the PC's drop zone produces (user, 2026-08-16). Quick save is one
 // receipt at a time; this is the trip that comes home with thirty.
-document.getElementById('btn-many').addEventListener('click', () => {
+document.getElementById('edit-many').addEventListener('click', () => {
   document.getElementById('f-many').click();
 });
 
@@ -1216,15 +1232,16 @@ document.getElementById('f-many').addEventListener('change', async (event) => {
 
   const reportType = document.getElementById('f-report-type').value;
   const reportName = document.getElementById('f-report-name').value;
-  const button = document.getElementById('btn-many');
-  const label = button.textContent;
+  const button = document.getElementById('edit-many');
+  const label = button.getAttribute('aria-label') || 'Add many receipts';
   button.disabled = true;
 
   const list = load();
   let added = 0;
   const skipped = [];
   for (const [index, file] of files.entries()) {
-    button.textContent = `Reading ${index + 1} of ${files.length}…`;
+    button.title = `Reading ${index + 1} of ${files.length}…`;
+    button.setAttribute('aria-label', button.title);
     try {
       const dataUrl = await compressImage(file);
       list.push({
@@ -1255,7 +1272,8 @@ document.getElementById('f-many').addEventListener('change', async (event) => {
   }
 
   button.disabled = false;
-  button.textContent = label;
+  button.title = label;
+  button.setAttribute('aria-label', label);
   if (!added) {
     showToast('None of those could be read on this phone.');
     return;
@@ -1281,20 +1299,52 @@ document.getElementById('btn-quick-save').addEventListener('click', () => {
   saveCapture({ quick: true });
 });
 
-// Leave an edit without saving it. Returns to Reports, which is where the
-// edit is opened from; clearForm already drops editingLocalId, the photos and
-// the scan marks, so nothing is left half-held.
+function navigateFromEditOrigin(origin) {
+  const target = origin || { tab: 'capture', reportRef: '', report: null };
+  editingOrigin = { tab: 'capture', reportRef: '', report: null };
+  if (target.tab === 'reports') {
+    activateTab('reports');
+    if (target.reportRef) openReportDetail(target.reportRef, target.report);
+    return;
+  }
+  if (target.tab === 'queue') {
+    activateTab('queue');
+    renderQueue();
+    return;
+  }
+  activateTab('capture');
+}
+
+// Back is the old Cancel action. It returns to the screen that opened the
+// expense, rather than always throwing the user back to the report list.
 function cancelEdit() {
+  const origin = editingOrigin;
   const current = editingLocalId && load().find((item) => item.localId === editingLocalId);
-  if (current && current.pcEditDraft && !current.awaitingPcUpdate) {
+  if (current && current.pcEditDraft && !current.awaitingPcUpdate && !current.deleteRequested) {
     save(load().filter((item) => item.localId !== editingLocalId));
   }
   clearForm();
-  const reportsTab = document.querySelector('nav button[data-tab="reports"]');
-  if (reportsTab) reportsTab.click();
+  navigateFromEditOrigin(origin);
 }
 
-document.getElementById('edit-cancel').addEventListener('click', cancelEdit);
+document.getElementById('edit-back').addEventListener('click', cancelEdit);
+
+function deleteCurrentEdit() {
+  const localId = editingLocalId;
+  const item = localId && load().find((entry) => entry.localId === localId);
+  if (!item) return;
+  if (item.expId) {
+    requestPcDelete(item);
+    return;
+  }
+  const origin = editingOrigin;
+  discardCapture(localId);
+  if (!load().some((entry) => entry.localId === localId)) {
+    navigateFromEditOrigin(origin);
+  }
+}
+
+document.getElementById('edit-delete').addEventListener('click', deleteCurrentEdit);
 
 function openForEdit(localId) {
   const list = load();
@@ -1339,12 +1389,7 @@ function openForEdit(localId) {
   }
   clearForm();
   editingLocalId = localId;
-  document.getElementById('edit-banner').style.display = 'flex';
-  document.getElementById('edit-banner-text').textContent = item.expId
-    ? 'Editing a PC expense. Saving sends the change to the PC.'
-    : item.synced
-    ? 'Editing an already-synced expense. Saving will update it.'
-    : 'Editing a not-yet-synced expense.';
+  renderEditBanner();
   document.getElementById('f-report-type').value = source.reportType || '';
   document.getElementById('f-report-name').value = source.reportName || '';
   selectedReportRef = source.reportRef || '';
@@ -1617,7 +1662,9 @@ function requestPcDelete(source) {
     };
     list.push(item);
   }
-  if (item.deleteRequested) return;
+  if (item.deleteRequested) return false;
+  const wasEditing = editingLocalId === item.localId;
+  const origin = editingOrigin;
   const label = item.description || item.category || source.category || 'this expense';
   const amount = item.amount !== '' && item.amount !== undefined
     ? ` (${item.amount} ${item.currency || ''})`.trim()
@@ -1634,12 +1681,17 @@ function requestPcDelete(source) {
     save(list);
   } catch (error) {
     showToast("Couldn't request that deletion on this phone (storage full).", true);
-    return;
+    return false;
   }
   updateSyncStrip();
   renderQueue();
   if (currentDetailReportRef) renderReportDetail();
   attemptSync();
+  if (wasEditing) {
+    clearForm();
+    navigateFromEditOrigin(origin);
+  }
+  return true;
 }
 
 function renderQueue() {
@@ -1675,12 +1727,6 @@ function renderQueue() {
     const discard = pcOwnsCapture(item)
       ? ''
       : `<button type="button" class="btn ghost small queue-discard" data-discard="${escapeHtml(item.localId)}">Discard</button>`;
-    const pcExpenseId = item.expId || ((matchingPcLine(item) || {}).expId || '');
-    const deletePc = pcOwnsCapture(item) && pcExpenseId
-      ? (item.deleteRequested
-        ? '<button type="button" class="btn ghost small" disabled>Deletion requested</button>'
-        : `<button type="button" class="btn ghost small queue-delete-pc" data-delete-pc="${escapeHtml(pcExpenseId)}">Delete on PC</button>`)
-      : '';
     const group = groupLabel(item);
     if (group !== lastGroup) {
       html += `<div class="band">${escapeHtml(group)}</div>`;
@@ -1689,12 +1735,15 @@ function renderQueue() {
     html += `
     <div class="qrow" data-open="${escapeHtml(item.localId)}" style="cursor:pointer">
       <div>${ddmmyyyy(display.date)} &middot; ${escapeHtml(display.category || 'No category')}${description} &middot; ${escapeHtml(String(display.amount ?? '0'))} ${escapeHtml(display.currency || '')}${item.sentWarning ? '<div class="hint">This report was sent on the PC. The capture stays here for 30 days.</div>' : ''}</div>
-      <span><span class="status ${state.key}">${state.label}</span>${scanStatusMarkup(item)}${discard}${deletePc}</span>
+      <span><span class="status ${state.key}">${state.label}</span>${scanStatusMarkup(item)}${discard}</span>
     </div>`;
   });
   host.innerHTML = html;
   host.querySelectorAll('[data-open]').forEach((row) => {
-    row.addEventListener('click', () => openForEdit(row.dataset.open));
+    row.addEventListener('click', () => {
+      editingOrigin = { tab: 'queue', reportRef: '', report: null };
+      openForEdit(row.dataset.open);
+    });
   });
   host.querySelectorAll('[data-scan-retry]').forEach((button) => {
     button.addEventListener('click', (event) => {
@@ -1706,13 +1755,6 @@ function renderQueue() {
     button.addEventListener('click', (event) => {
       event.stopPropagation();
       discardCapture(button.dataset.discard);
-    });
-  });
-  host.querySelectorAll('[data-delete-pc]').forEach((button) => {
-    button.addEventListener('click', (event) => {
-      event.stopPropagation();
-      const item = load().find((entry) => entry.expId === button.dataset.deletePc);
-      if (item) requestPcDelete(item);
     });
   });
   renderQueueActions();
@@ -2101,17 +2143,7 @@ let currentDetailReportRef = '';
 let currentDetailReport = null;
 let currentDetailChip = 'all';
 let currentDetailShown = DETAIL_PAGE_SIZE;
-// Which line is open. One at a time: on a phone, two open receipts means
-// scrolling past one to reach the other.
-let openDetailLine = '';
 
-// The receipt panel under an opened line.
-//
-// A photo taken on this phone lives in the local capture queue as a data URL,
-// so it can be shown immediately with no network at all. A line that came from
-// the PC only carries hasReceipt, a boolean -- the image itself sits on the PC's
-// disk, which this page can never reach. Saying so plainly beats a broken image
-// or a spinner that never resolves.
 // The queued capture behind a report line, if this phone is the one that made
 // it. A line still waiting for the PC is matched by its localId; once the PC
 // has it the line is a PC line, so it is matched on date, amount and category
@@ -2126,65 +2158,6 @@ function localCaptureFor(line) {
   if (line.localId) return queue.find((item) => item.localId === line.localId) || null;
   const key = pendingKey(line.date, line.amount, line.category);
   return queue.find((item) => pendingKey(item.date, item.amount, item.category) === key) || null;
-}
-
-function receiptPanelHtml(line) {
-  const bits = [];
-  if (line.description) bits.push(escapeHtml(line.description));
-  if (line.currency) bits.push(escapeHtml(line.currency));
-  if (line.paidWith) bits.push('Paid with ' + escapeHtml(line.paidWith));
-  const meta = bits.length ? `<div class="kv">${bits.join(' &middot; ')}</div>` : '';
-  const local = localCaptureFor(line);
-  const editButton = local
-    ? `<button type="button" class="line-edit" data-edit-line="${escapeHtml(local.localId)}">Review expense</button>`
-    : line.expId
-      ? `<button type="button" class="line-edit" data-edit-pc="${escapeHtml(line.expId)}">Review expense</button>`
-      : '';
-  // A phone-only line is a local queue item, not a PC expense. It needs a
-  // direct way out here because opening it from a report used to offer only
-  // Review, leaving a wrong pending amount such as 47 beside the real PC
-  // amount 46 with no way to remove the phone copy. Reuse discardCapture so
-  // its confirmation names the loss and its PC-ownership guard still applies.
-  const discardButton = local && !pcOwnsCapture(local)
-    ? `<button type="button" class="line-discard" data-discard-line="${escapeHtml(local.localId)}">Discard phone-only capture</button>`
-    : '';
-  const deleteError = (local && local.deleteError) || line.mobileDeleteError || '';
-  const deleteButton = line.expId && (!local || pcOwnsCapture(local))
-    ? (local && local.deleteRequested
-      ? '<button type="button" class="line-delete" disabled>Deletion requested on PC</button>'
-      : `<button type="button" class="line-delete" data-delete-pc-line="${escapeHtml(line.expId)}">Delete expense on PC</button>`)
-    : '';
-  const deleteMessage = deleteError
-    ? `<p class="hint">PC refused deletion: ${escapeHtml(deleteError)}</p>`
-    : '';
-  const actions = `${editButton}${deleteMessage}${deleteButton}${discardButton}`;
-  if (local) {
-    const shots = local.photos || [];
-    if (!shots.length) {
-      if (line.hasReceipt) {
-        return `<div class="exdetail">${meta}${actions}</div>`;
-      }
-      return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p>${actions}</div>`;
-    }
-    // A queued photo is stored as { base64, name } by the capture screen, not
-    // as a bare data-URL string. Mapping the object straight into src= gave
-    // every receipt src="[object Object]", which is the broken image reported
-    // on 2026-08-13 -- the regression shipped with tap-to-open on 12/08.
-    // dataUrlOf tolerates both shapes so an older queue entry still renders.
-    const images = shots.map((shot) => {
-      const src = dataUrlOf(shot);
-      if (!src) return '<p class="hint">This receipt could not be read from the phone.</p>';
-      if (!src.startsWith('data:image')) {
-        return `<p class="hint">${escapeHtml(shot.name || 'This file')} is attached, but it is not an image so it cannot be shown here.</p>`;
-      }
-      return `<img class="receipt-preview" src="${escapeHtml(src)}" alt="Receipt">`;
-    }).join('');
-    return `<div class="exdetail">${meta}${images}${actions}</div>`;
-  }
-  if (!line.hasReceipt) {
-    return `<div class="exdetail">${meta}<p class="hint">No receipt on this expense.</p>${actions}</div>`;
-  }
-  return `<div class="exdetail">${meta}${actions}</div>`;
 }
 
 // A PC receipt is fetched only for the one expense being edited and only into
@@ -2283,7 +2256,6 @@ function startPcExpenseEdit(line) {
 function openReportDetail(reportRef, report) {
   currentDetailReportRef = reportRef;
   currentDetailReport = report || null;
-  openDetailLine = '';
   currentDetailChip = 'all';
   currentDetailShown = DETAIL_PAGE_SIZE;
   unfiledPickerOpen = false;
@@ -2502,6 +2474,18 @@ function detailLinesForReport() {
   return pcLines.concat(pending);
 }
 
+function openReportExpense(line) {
+  if (!line) return;
+  editingOrigin = {
+    tab: 'reports',
+    reportRef: currentDetailReportRef,
+    report: currentDetailReport,
+  };
+  const local = localCaptureFor(line);
+  if (local) openForEdit(local.localId);
+  else startPcExpenseEdit(line);
+}
+
 function monthBand(dateStr) {
   if (!dateStr) return '';
   const d = new Date(dateStr + 'T00:00:00');
@@ -2587,49 +2571,15 @@ function renderReportDetail() {
       ${ndfPill}
       <div class="amt">${reportLineAmountHtml(x)}</div>
     </div>`;
-    if (openDetailLine === rowKey) html += receiptPanelHtml(x);
   });
   document.getElementById('report-detail-lines').innerHTML = html || '<p class="hint">No expenses match this view.</p>';
   document.querySelectorAll('#report-detail-lines [data-line]').forEach((row) => {
     row.addEventListener('click', () => {
-      openDetailLine = openDetailLine === row.dataset.line ? '' : row.dataset.line;
-      renderReportDetail();
-    });
-  });
-  // Inside the opened panel, not on the row, so opening a line to look at its
-  // receipt can never be mistaken for starting an edit.
-  document.querySelectorAll('#report-detail-lines [data-edit-line]').forEach((button) => {
-    button.addEventListener('click', (event) => {
-      event.stopPropagation();
-      openForEdit(button.dataset.editLine);
-    });
-  });
-  document.querySelectorAll('#report-detail-lines [data-edit-pc]').forEach((button) => {
-    button.addEventListener('click', (event) => {
-      event.stopPropagation();
-      const line = all.find((item) => item.expId === button.dataset.editPc);
-      if (line) startPcExpenseEdit(line);
-    });
-  });
-  document.querySelectorAll('#report-detail-lines [data-discard-line]').forEach((button) => {
-    button.addEventListener('click', (event) => {
-      event.stopPropagation();
-      discardCapture(button.dataset.discardLine);
-      openDetailLine = '';
-      renderReportDetail();
-    });
-  });
-  document.querySelectorAll('#report-detail-lines [data-delete-pc-line]').forEach((button) => {
-    button.addEventListener('click', (event) => {
-      event.stopPropagation();
-      const line = all.find((item) => item.expId === button.dataset.deletePcLine);
-      if (line) requestPcDelete(line);
-    });
-  });
-  document.querySelectorAll('#report-detail-lines .receipt-preview').forEach((image) => {
-    image.addEventListener('click', (event) => {
-      event.stopPropagation();
-      openReceiptLightbox(image.src);
+      const line = shown.find((item) => {
+        const key = item.pending ? `local:${item.localId}` : `pc:${item.expId || pendingKey(item.date, item.amount, item.category)}`;
+        return key === row.dataset.line;
+      });
+      openReportExpense(line);
     });
   });
 
