@@ -33,20 +33,23 @@ def test_mobile_release_and_cache_version_are_bumped():
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
     assert "eh-mobile-v40" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
-    assert "var VERSION = '1.18';" in app_script
+    assert "var VERSION = '1.19';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
     assert "MOBILE_EDIT_RESOLUTION" in app_script
     # 1.18: LocalId is matched before ExpId, so a capture that has just been
     # given an EXP_ID can never be appended as a SECOND row for the same
     # LocalId. That duplicate is what made one capture apply and conflict on
     # every pull, for ever.
-    assert "findRowByLocalId(sheet, data.localId)" in app_script
+    assert "findRowByLocalId(sheet, data.localId, data.syncToken)" in app_script
     assert app_script.index("var existingRow = findRowByLocalId") < app_script.index(
         "existingRow = findRowByExpId"
     )
     # 1.18: a capture the PC has taken in stops being exported.
     assert "'Consumed'" in app_script
     assert "function doAckCaptures_(data)" in app_script
+    assert "findRowByLocalId(sheet, localId, item.syncToken)" in app_script
+    assert "function findRowByLocalId(sheet, localId, syncToken)" in app_script
+    assert "function findRowByExpId(sheet, expId, syncToken)" in app_script
     assert 'id="script-version"' in HTML
     assert "function rememberEndpointVersion(payload)" in HTML
     assert "deployedScriptVersion = 'unknown'" in HTML

@@ -1,5 +1,5 @@
 // Expense Hub Mobile -- Apps Script Web App
-// VERSION 1.18
+// VERSION 1.19
 // Paste this whole file into Extensions > Apps Script on the Google Sheet
 // created for mobile capture. Deploy > Manage deployments > edit (pencil)
 // > Version: New version > Deploy, so the URL you already pasted into the
@@ -7,7 +7,7 @@
 //
 // After redeploying, open the Web App URL directly in a browser (paste the
 // same URL from the phone's Settings field into any browser address bar).
-// The JSON response includes "version":"1.18" -- if it still says an older
+// The JSON response includes "version":"1.19" -- if it still says an older
 // number, the redeploy did not actually take and that is the bug, not the
 // code below.
 //
@@ -71,7 +71,7 @@
 // stay on the PC only. Never edited here by
 // hand.
 
-var VERSION = '1.18';
+var VERSION = '1.19';
 var SHEET_NAME = 'MobileCaptures';
 var PC_REPORTS_SHEET_NAME = 'PCReports';
 var PC_EXPENSES_SHEET_NAME = 'PCExpenses';
@@ -145,9 +145,9 @@ function doPost(e) {
     // and rebuilt its queue from PCExpenses. Matching on ExpId first is what
     // appended a duplicate row for a capture that already had one -- see the
     // header note.
-    var existingRow = findRowByLocalId(sheet, data.localId);
+    var existingRow = findRowByLocalId(sheet, data.localId, data.syncToken);
     if (!existingRow && data.expId) {
-      existingRow = findRowByExpId(sheet, data.expId);
+      existingRow = findRowByExpId(sheet, data.expId, data.syncToken);
     }
     if (existingRow) {
       sheet.getRange(existingRow, 1, 1, row.length).setValues([row]);
@@ -239,8 +239,10 @@ function doAckCaptures_(data) {
   items.forEach(function(item) {
     var localId = item && item.localId;
     if (!localId) return;
-    var rowNumber = findRowByLocalId(sheet, localId);
-    if (!rowNumber && item.expId) rowNumber = findRowByExpId(sheet, item.expId);
+    var rowNumber = findRowByLocalId(sheet, localId, item.syncToken);
+    if (!rowNumber && item.expId) {
+      rowNumber = findRowByExpId(sheet, item.expId, item.syncToken);
+    }
     if (!rowNumber) return;
     if (item.expId) {
       sheet.getRange(rowNumber, 17).setValue(item.expId);
@@ -541,26 +543,49 @@ function getOrCreatePCReportsSheet() {
   return sheet;
 }
 
-function findRowByLocalId(sheet, localId) {
+function findRowByLocalId(sheet, localId, syncToken) {
   if (!localId) return null;
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return null;
-  var values = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
+  // Read through Consumed. A LocalId can have an old consumed row and a
+  // newer live row after the pre-1.18 duplicate-row bug. Prefer the exact
+  // SyncToken the caller read; otherwise prefer a live row over the old
+  // consumed one. Choosing the first LocalId was why the PC kept receiving
+  // the EUR 34 row after every acknowledgement.
+  var values = sheet.getRange(2, 2, lastRow - 1, 20).getValues();
+  var liveRow = null;
+  var fallbackRow = null;
   for (var i = 0; i < values.length; i++) {
-    if (values[i][0] === localId) return i + 2;
+    if (values[i][0] !== localId) continue;
+    var rowNumber = i + 2;
+    if (syncToken && String(values[i][17] || '') === String(syncToken)) {
+      return rowNumber;
+    }
+    if (!fallbackRow) fallbackRow = rowNumber;
+    if (!values[i][19] && !liveRow) liveRow = rowNumber;
   }
-  return null;
+  return liveRow || fallbackRow;
 }
 
-function findRowByExpId(sheet, expId) {
+function findRowByExpId(sheet, expId, syncToken) {
   if (!expId) return null;
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return null;
-  var values = sheet.getRange(2, 17, lastRow - 1, 1).getValues();
+  // Q:U is EXP_ID through Consumed: indices 0, 2 and 4 are the identity,
+  // SyncToken and consumed flag respectively.
+  var values = sheet.getRange(2, 17, lastRow - 1, 5).getValues();
+  var liveRow = null;
+  var fallbackRow = null;
   for (var i = 0; i < values.length; i++) {
-    if (values[i][0] === expId) return i + 2;
+    if (values[i][0] !== expId) continue;
+    var rowNumber = i + 2;
+    if (syncToken && String(values[i][2] || '') === String(syncToken)) {
+      return rowNumber;
+    }
+    if (!fallbackRow) fallbackRow = rowNumber;
+    if (!values[i][4] && !liveRow) liveRow = rowNumber;
   }
-  return null;
+  return liveRow || fallbackRow;
 }
 
 function savePhotos(photos) {
