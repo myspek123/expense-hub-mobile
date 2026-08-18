@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.20"' in HTML
-    assert '>v3.20</span>' in HTML
+    assert 'content="3.21"' in HTML
+    assert '>v3.21</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v40" in service_worker
+    assert "eh-mobile-v41" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.19';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -583,6 +583,32 @@ def test_sync_tab_shows_pc_values_for_a_local_id_match():
     assert "When a line is on the PC, this tab shows the PC's amount, category and description." in HTML
     assert "if (item.awaitingPcUpdate) return item;" in HTML
     assert "item.awaitingPcUpdate = true;" in HTML
+
+
+def test_a_normal_pc_edit_updates_the_phone_stored_capture():
+    """A PC edit must not remain only in the phone's display cache.
+
+    Before this branch existed, the next phone edit started from the stale
+    localStorage copy and could send the old value back to the PC.
+    """
+    fetch = HTML[HTML.index("async function fetchReports()") :]
+    fetch = fetch[: fetch.index("function amountKey")]
+    assert "item.synced && !pc.deleted && !pc.mobileEditConflict" in fetch
+    assert "applyPcLineToLocal(item, pc);" in fetch
+    helper = HTML[HTML.index("function applyPcLineToLocal(item, pc)") :]
+    helper = helper[: helper.index("function pcResolutionToken")]
+    assert "item.description = pc.description ?? item.description;" in helper
+    assert "item.reportRef = pc.reportRef ?? item.reportRef;" in helper
+    assert "item.baseValues = pcEditValues(pc);" in helper
+
+
+def test_pc_decision_can_acknowledge_from_resolution_record():
+    ack = HTML[HTML.index("function pcEditAcknowledged(item, pc)") :]
+    ack = ack[: ack.index("function pcConflictFor")]
+    assert "pcResolutionToken(pc)" in ack
+    token = HTML[HTML.index("function pcResolutionToken(pc)") :]
+    token = token[: token.index("function pcLineMatchesBase")]
+    assert "mobile_edit_token" in token
 
 
 def test_sheet_write_is_not_called_pc_confirmed_sync():

@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.20">
+<meta name="application-version" content="3.21">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -219,7 +219,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.20</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.21</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1565,8 +1565,9 @@ function matchingPcLineIn(item, pcLines) {
 }
 
 function pcEditAcknowledged(item, pc) {
-  return Boolean(item && pc && item.syncToken && pc.mobileEditToken
-    && String(item.syncToken) === String(pc.mobileEditToken));
+  const token = pcResolutionToken(pc);
+  return Boolean(item && item.syncToken && token
+    && String(item.syncToken) === token);
 }
 
 function pcConflictFor(item) {
@@ -2018,23 +2019,7 @@ async function fetchReports() {
             // The PC writes this token after it has processed this request.
             // If the values differ, the PC deliberately kept its version
             // after a conflict; that is still a finished, explicit result.
-            if (!pcLineMatchesLocal(item, pc)) {
-              item.date = pc.date ?? item.date;
-              item.category = pc.category ?? item.category;
-              item.amount = pc.amount ?? item.amount;
-              item.currency = pc.currency ?? item.currency;
-              item.description = pc.description ?? item.description;
-              item.paidWith = pc.paidWith ?? item.paidWith;
-              item.reportRef = pc.reportRef ?? item.reportRef;
-              const pcReport = getCachedReports().find((report) => report.reportRef === item.reportRef);
-              if (pcReport) {
-                item.reportName = pcReport.name || item.reportName;
-                item.reportType = FLOW_TO_PHONE_TYPE[pcReport.type] || pcReport.type || item.reportType;
-              }
-            }
-            item.syncMismatch = false;
-            item.awaitingPcUpdate = false;
-            item.baseValues = pcEditValues(pc);
+            applyPcLineToLocal(item, pc);
             changed = true;
           } else if (pcLineMatchesLocal(item, pc)) {
             // Backward compatibility for rows written before the token: an
@@ -2059,6 +2044,16 @@ async function fetchReports() {
             item.syncMismatch = true;
             changed = true;
           }
+        } else if (pc && item.synced && !pc.deleted && !pc.mobileEditConflict
+            && !pcLineMatchesLocal(item, pc)) {
+          // A PC edit is also a real sync event. The old code only copied PC
+          // values into localStorage while a phone edit was awaiting an ack,
+          // so an ordinary PC edit was visible only in the cached list and a
+          // later phone edit could resurrect the stale local value. A synced
+          // line with no open phone conflict is safe to adopt wholesale; the
+          // receipt/photo and localId remain phone-owned.
+          applyPcLineToLocal(item, pc);
+          changed = true;
         }
       });
       const keptQueue = queue.filter((item) => !item._pcDeletionConfirmed);
@@ -2094,6 +2089,35 @@ function pcLineMatchesValues(values, pc) {
     && String(pc.category ?? '').trim() === String(values.category ?? '').trim()
     && String(pc.description ?? '').trim() === String(values.description ?? '').trim()
     && String(pc.paidWith ?? '').trim() === String(values.paidWith ?? '').trim();
+}
+
+function applyPcLineToLocal(item, pc) {
+  item.date = pc.date ?? item.date;
+  item.category = pc.category ?? item.category;
+  item.amount = pc.amount ?? item.amount;
+  item.currency = pc.currency ?? item.currency;
+  item.description = pc.description ?? item.description;
+  item.paidWith = pc.paidWith ?? item.paidWith;
+  item.reportRef = pc.reportRef ?? item.reportRef;
+  const pcReport = getCachedReports().find((report) => report.reportRef === item.reportRef);
+  if (pcReport) {
+    item.reportName = pcReport.name || item.reportName;
+    item.reportType = FLOW_TO_PHONE_TYPE[pcReport.type] || pcReport.type || item.reportType;
+  }
+  item.syncMismatch = false;
+  item.awaitingPcUpdate = false;
+  item.baseValues = pcEditValues(pc);
+}
+
+function pcResolutionToken(pc) {
+  const direct = String((pc && pc.mobileEditToken) || '').trim();
+  if (direct) return direct;
+  try {
+    const resolution = JSON.parse(String((pc && pc.mobileEditResolution) || ''));
+    return String(resolution && resolution.mobile_edit_token || '').trim();
+  } catch (e) {
+    return '';
+  }
 }
 
 function pcLineMatchesBase(item, pc) {
