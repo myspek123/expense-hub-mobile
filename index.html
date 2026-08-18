@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.22">
+<meta name="application-version" content="3.23">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -219,7 +219,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.22</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.23</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1566,8 +1566,17 @@ function matchingPcLineIn(item, pcLines) {
 
 function pcEditAcknowledged(item, pc) {
   const token = pcResolutionToken(pc);
-  return Boolean(item && item.syncToken && token
-    && String(item.syncToken) === token);
+  if (item && item.syncToken && token && String(item.syncToken) === token) return true;
+  // Very old queue entries did not carry a token.  A resolution that names
+  // the same permanent LocalId is still an explicit PC decision for those
+  // entries; never use this fallback for a newer token-bearing edit.
+  try {
+    const resolution = JSON.parse(String((pc && pc.mobileEditResolution) || ''));
+    return Boolean(item && !item.syncToken && item.localId
+      && resolution && resolution.local_id === item.localId);
+  } catch (e) {
+    return false;
+  }
 }
 
 function pcConflictFor(item) {
@@ -2044,8 +2053,7 @@ async function fetchReports() {
             item.syncMismatch = true;
             changed = true;
           }
-        } else if (pc && !pc.deleted && !pc.mobileEditConflict
-            && !pcLineMatchesLocal(item, pc)) {
+        } else if (pc && !pc.deleted && !pc.mobileEditConflict) {
           // A PC edit is also a real sync event. The old code only copied PC
           // values into localStorage while a phone edit was awaiting an ack,
           // so an ordinary PC edit was visible only in the cached list and a
@@ -2054,8 +2062,18 @@ async function fetchReports() {
           // sheet row—not the possibly stale local `synced` flag—proves that
           // the PC owns the current values. The receipt/photo and localId
           // remain phone-owned.
-          applyPcLineToLocal(item, pc);
-          changed = true;
+          if (item.syncMismatch && pcLineMatchesLocal(item, pc)) {
+            // The PC has already resolved the old request, but the phone had
+            // retained its warning from an earlier cached response.  An
+            // exact current line is enough to clear that stale local flag.
+            item.syncMismatch = false;
+            item.awaitingPcUpdate = false;
+            item.baseValues = pcEditValues(pc);
+            changed = true;
+          } else if (!pcLineMatchesLocal(item, pc)) {
+            applyPcLineToLocal(item, pc);
+            changed = true;
+          }
         }
       });
       const keptQueue = queue.filter((item) => !item._pcDeletionConfirmed);
@@ -2090,7 +2108,8 @@ function pcLineMatchesValues(values, pc) {
     && String(pc.currency ?? '').trim().toUpperCase() === String(values.currency ?? '').trim().toUpperCase()
     && String(pc.category ?? '').trim() === String(values.category ?? '').trim()
     && String(pc.description ?? '').trim() === String(values.description ?? '').trim()
-    && String(pc.paidWith ?? '').trim() === String(values.paidWith ?? '').trim();
+    && String(pc.paidWith ?? '').trim().toLocaleLowerCase()
+      === String(values.paidWith ?? '').trim().toLocaleLowerCase();
 }
 
 function applyPcLineToLocal(item, pc) {
