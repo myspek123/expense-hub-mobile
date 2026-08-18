@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.21"' in HTML
-    assert '>v3.21</span>' in HTML
+    assert 'content="3.22"' in HTML
+    assert '>v3.22</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v41" in service_worker
+    assert "eh-mobile-v42" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.19';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -593,7 +593,8 @@ def test_a_normal_pc_edit_updates_the_phone_stored_capture():
     """
     fetch = HTML[HTML.index("async function fetchReports()") :]
     fetch = fetch[: fetch.index("function amountKey")]
-    assert "item.synced && !pc.deleted && !pc.mobileEditConflict" in fetch
+    assert "!pc.deleted && !pc.mobileEditConflict" in fetch
+    assert "item.synced && !pc.deleted" not in fetch
     assert "applyPcLineToLocal(item, pc);" in fetch
     helper = HTML[HTML.index("function applyPcLineToLocal(item, pc)") :]
     helper = helper[: helper.index("function pcResolutionToken")]

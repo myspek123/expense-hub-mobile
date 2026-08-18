@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.21">
+<meta name="application-version" content="3.22">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -219,7 +219,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.21</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.22</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -2044,14 +2044,16 @@ async function fetchReports() {
             item.syncMismatch = true;
             changed = true;
           }
-        } else if (pc && item.synced && !pc.deleted && !pc.mobileEditConflict
+        } else if (pc && !pc.deleted && !pc.mobileEditConflict
             && !pcLineMatchesLocal(item, pc)) {
           // A PC edit is also a real sync event. The old code only copied PC
           // values into localStorage while a phone edit was awaiting an ack,
           // so an ordinary PC edit was visible only in the cached list and a
-          // later phone edit could resurrect the stale local value. A synced
-          // line with no open phone conflict is safe to adopt wholesale; the
-          // receipt/photo and localId remain phone-owned.
+          // later phone edit could resurrect the stale local value. The PC row
+          // already matched this capture by stable EXP_ID/localId, so the
+          // sheet row—not the possibly stale local `synced` flag—proves that
+          // the PC owns the current values. The receipt/photo and localId
+          // remain phone-owned.
           applyPcLineToLocal(item, pc);
           changed = true;
         }
