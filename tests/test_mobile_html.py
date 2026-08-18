@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.25"' in HTML
-    assert '>v3.25</span>' in HTML
+    assert 'content="3.26"' in HTML
+    assert '>v3.26</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v45" in service_worker
+    assert "eh-mobile-v46" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.19';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -606,6 +606,9 @@ def test_sync_tab_shows_pc_values_for_a_local_id_match():
     assert "display.category" in queue
     assert "display.description" in queue
     assert "display.amount" in queue
+    values = HTML[HTML.index("function syncDisplayValues(item)"):]
+    values = values[: values.index("function pcOwnsCapture")]
+    assert "paidWith: pc.paidWith ?? item.paidWith" in values
     assert "When a line is on the PC, this tab shows the PC's amount, category and description." in HTML
     assert "if (item.awaitingPcUpdate) return item;" in HTML
     assert "item.awaitingPcUpdate = true;" in HTML
@@ -627,6 +630,14 @@ def test_a_normal_pc_edit_updates_the_phone_stored_capture():
     assert "item.description = pc.description ?? item.description;" in helper
     assert "item.reportRef = pc.reportRef ?? item.reportRef;" in helper
     assert "item.baseValues = pcEditValues(pc);" in helper
+
+
+def test_edit_without_a_selected_card_retains_the_existing_card():
+    save = HTML[HTML.index("function paidWithForSave(prior)"):]
+    save = save[: save.index("// Add many:")]
+    assert "const pc = prior ? matchingPcLine(prior) : null;" in save
+    assert "return String((prior && prior.paidWith) || (pc && pc.paidWith) || '').trim();" in save
+    assert "const paidWith = paidWithForSave(prior);" in save
 
 
 def test_pc_decision_can_acknowledge_from_resolution_record():

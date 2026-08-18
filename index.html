@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.25">
+<meta name="application-version" content="3.26">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -219,7 +219,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.25</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.26</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1222,6 +1222,19 @@ async function drainScanQueue(userAsked) {
   if (userAsked) showToast(changed ? 'Receipt scan queue checked.' : 'Nothing was waiting to scan.');
 }
 
+function paidWithForSave(prior) {
+  const paidBtn = document.querySelector('[data-paid].on');
+  const selected = paidBtn ? String(paidBtn.dataset.paid || '').trim() : '';
+  if (selected) return selected;
+  // There is no "clear card" action on the phone. If the chip is not
+  // selected (for example while an older Pro card/PRO card spelling is being
+  // reconciled), retain the existing value rather than turning a metadata
+  // edit into a blank-card update. A current PC line is the final fallback
+  // for an older local queue entry that already lost its copy.
+  const pc = prior ? matchingPcLine(prior) : null;
+  return String((prior && prior.paidWith) || (pc && pc.paidWith) || '').trim();
+}
+
 async function saveCapture(opts) {
   // Quick save is a photo and nothing else, by design: snap the receipt on the
   // way out of the restaurant and deal with it later. Requiring a report type
@@ -1229,11 +1242,10 @@ async function saveCapture(opts) {
   // said so on 13/08. It is safe now: a capture with no type lands in Unfiled
   // on the PC with a note asking for one, which is exactly what Unfiled is for.
   if (!(opts && opts.quick) && !validateCapture()) return false;
-  const paidBtn = document.querySelector('[data-paid].on');
-  const paidWith = paidBtn ? paidBtn.dataset.paid : '';
   const list = load();
   const isEdit = !!editingLocalId;
   const prior = isEdit ? list.find((entry) => entry.localId === editingLocalId) : null;
+  const paidWith = paidWithForSave(prior);
   // Editing metadata is not a request to run OCR again. A receipt is scanned
   // automatically only when it is first saved or the user actually changes
   // the photo; pending/finished scans have an explicit Scan now/Rescan
@@ -1618,6 +1630,7 @@ function syncDisplayValues(item) {
     amount: pc.amount ?? item.amount,
     category: pc.category ?? item.category,
     description: pc.description ?? item.description,
+    paidWith: pc.paidWith ?? item.paidWith,
   });
 }
 
