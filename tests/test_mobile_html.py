@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.23"' in HTML
-    assert '>v3.23</span>' in HTML
+    assert 'content="3.24"' in HTML
+    assert '>v3.24</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v43" in service_worker
+    assert "eh-mobile-v44" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.19';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -76,6 +76,27 @@ def test_a_failed_scan_says_what_went_wrong():
     markup = HTML[HTML.index("function scanStatusMarkup(item)") :]
     markup = markup[: markup.index("function renderCaptureScanStatus")]
     assert "item.ocrError" in markup
+
+
+def test_metadata_edit_does_not_requeue_or_run_ocr():
+    save = HTML[HTML.index("async function saveCapture(opts)") :]
+    save = save[: save.index("// Add many:")]
+    assert "const shouldScan = photos.length > 0 && (!prior || photoDirty);" in save
+    assert "ocrScanRequested: shouldScan" in save
+    assert "if (shouldScan) drainScanQueue();" in save
+    drain = HTML[HTML.index("async function drainScanQueue") :]
+    drain = drain[: drain.index("async function saveCapture")]
+    assert "item.ocrScanRequested !== true" in drain
+
+
+def test_scan_can_only_be_restarted_by_an_explicit_control():
+    markup = HTML[HTML.index("function scanStatusMarkup(item)") :]
+    markup = markup[: markup.index("function renderCaptureScanStatus")]
+    assert "Scan pending · scan now" in markup
+    assert ">Rescan</button>" in markup
+    retry = HTML[HTML.index("function retryScan(localId)") :]
+    retry = retry[: retry.index("function failUnconfiguredScans")]
+    assert "item.ocrScanRequested = true;" in retry
 
 
 def test_a_pending_scan_cannot_stay_pending_without_scan_configuration():
@@ -702,7 +723,7 @@ def test_scan_status_is_visible_inside_the_open_expense_until_done():
     assert "function renderCaptureScanStatus(item)" in HTML
     assert "renderCaptureScanStatus(item);" in HTML
     scan = HTML[HTML.index("function scanStatusMarkup(item)"):]
-    assert "return '';" in scan[:700]
+    assert "return '';" in scan[:1000]
 
 
 def test_sync_queue_is_date_descending_and_report_lines_have_a_scan_icon():

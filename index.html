@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.23">
+<meta name="application-version" content="3.24">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -219,7 +219,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.23</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.24</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1067,7 +1067,10 @@ function renderScanMarks(fields) {
 }
 
 function scanStatusMarkup(item) {
-  if (item.ocrStatus === 'pending') return '<span class="scan-pill pending">Scan pending</span>';
+  if (item.ocrStatus === 'pending') {
+    return '<button type="button" class="scan-pill pending scan-retry" data-scan-retry="'
+      + escapeHtml(item.localId) + '">Scan pending · scan now</button>';
+  }
   if (item.ocrStatus === 'failed') {
     // The reason, not just the fact. "Scan failed, retry" gave no way to tell
     // a missing key from an unreadable photo (2026-08-16).
@@ -1076,6 +1079,10 @@ function scanStatusMarkup(item) {
       + escapeHtml(item.localId) + '">'
       + (why ? escapeHtml(why) + ' - retry' : 'Scan failed, retry')
       + '</button>';
+  }
+  if (item.ocrStatus === 'done' && item.photos && item.photos.length) {
+    return '<button type="button" class="scan-pill done scan-retry" data-scan-retry="'
+      + escapeHtml(item.localId) + '">Rescan</button>';
   }
   return '';
 }
@@ -1093,6 +1100,7 @@ function retryScan(localId) {
   const item = list.find((entry) => entry.localId === localId);
   if (!item) return;
   item.ocrStatus = 'pending';
+  item.ocrScanRequested = true;
   save(list);
   if (editingLocalId === localId) renderCaptureScanStatus(item);
   renderQueue();
@@ -1103,9 +1111,11 @@ function failUnconfiguredScans() {
   const list = load();
   let changed = false;
   list.forEach((item) => {
-    if (item.ocrStatus !== 'pending' || !item.photos || !item.photos.length) return;
+    if (item.ocrStatus !== 'pending' || item.ocrScanRequested !== true
+      || !item.photos || !item.photos.length) return;
     item.ocrStatus = 'failed';
     item.ocrError = 'Receipt scanning is not configured in Settings';
+    item.ocrScanRequested = false;
     changed = true;
   });
   if (!changed) return false;
@@ -1136,6 +1146,7 @@ function applyScanResult(item, result) {
   });
   item.ocrFields = OCR_FIELDS.filter((name) => filled.has(name));
   item.ocrStatus = 'done';
+  item.ocrScanRequested = false;
   if (editingLocalId === item.localId) {
     renderScanMarks(item.ocrFields);
     renderCaptureScanStatus(item);
@@ -1163,7 +1174,8 @@ async function drainScanQueue(userAsked) {
   let changed = false;
   try {
     for (const item of list) {
-      if (item.ocrStatus !== 'pending' || !item.photos || !item.photos.length) continue;
+      if (item.ocrStatus !== 'pending' || item.ocrScanRequested !== true
+        || !item.photos || !item.photos.length) continue;
       try {
         const photo = dataUrlOf(item.photos[0]);
         const parts = dataUrlParts(photo);
@@ -1192,6 +1204,7 @@ async function drainScanQueue(userAsked) {
       } catch (error) {
         item.ocrStatus = 'failed';
         item.ocrError = String((error && error.message) || 'scan failed');
+        item.ocrScanRequested = false;
         if (editingLocalId === item.localId) renderCaptureScanStatus(item);
         changed = true;
       }
@@ -1217,7 +1230,11 @@ async function saveCapture(opts) {
   const list = load();
   const isEdit = !!editingLocalId;
   const prior = isEdit ? list.find((entry) => entry.localId === editingLocalId) : null;
-  const shouldScan = photos.length > 0 && (!prior || photoDirty || prior.ocrStatus !== 'done');
+  // Editing metadata is not a request to run OCR again. A receipt is scanned
+  // automatically only when it is first saved or the user actually changes
+  // the photo; pending/finished scans have an explicit Scan now/Rescan
+  // control instead of being revived by a category edit.
+  const shouldScan = photos.length > 0 && (!prior || photoDirty);
   const ocrFields = (prior && Array.isArray(prior.ocrFields) ? prior.ocrFields : []).filter((name) => !manualFields.has(name));
   const ocrImageHash = photos.length && !photoDirty && prior && prior.ocrImageHash
     ? prior.ocrImageHash
@@ -1238,6 +1255,7 @@ async function saveCapture(opts) {
     paidWith: paidWith,
     photos: photos,
     ocrStatus: shouldScan ? 'pending' : (photos.length && prior ? (prior.ocrStatus || '') : ''),
+    ocrScanRequested: shouldScan,
     ocrFields: ocrFields,
     ocrManualFields: Array.from(manualFields),
     ocrFillableFields: OCR_FIELDS.filter((name) => !manualFields.has(name)),
@@ -1265,7 +1283,7 @@ async function saveCapture(opts) {
   if (paidWith) localStorage.setItem(LAST_PAID_KEY, paidWith);
   clearForm();
   updateSyncStrip();
-  drainScanQueue();
+  if (shouldScan) drainScanQueue();
   attemptSync();
   document.querySelector('nav button[data-tab="queue"]').click();
   return true;
