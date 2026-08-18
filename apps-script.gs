@@ -1,5 +1,5 @@
 // Expense Hub Mobile -- Apps Script Web App
-// VERSION 1.17
+// VERSION 1.18
 // Paste this whole file into Extensions > Apps Script on the Google Sheet
 // created for mobile capture. Deploy > Manage deployments > edit (pencil)
 // > Version: New version > Deploy, so the URL you already pasted into the
@@ -7,7 +7,7 @@
 //
 // After redeploying, open the Web App URL directly in a browser (paste the
 // same URL from the phone's Settings field into any browser address bar).
-// The JSON response includes "version":"1.17" -- if it still says an older
+// The JSON response includes "version":"1.18" -- if it still says an older
 // number, the redeploy did not actually take and that is the bug, not the
 // code below.
 //
@@ -26,11 +26,32 @@
 // Timestamp | LocalId | ReportType | ReportName | Date | Category |
 // Amount | Currency | Description | PaidWith | PhotoUrls | ReportRef |
 // OcrStatus | OcrFields | OcrImageHash | OcrManualFields | ExpId | BaseValues |
-// SyncToken | DeleteRequested
+// SyncToken | DeleteRequested | Consumed
 // (ReportRef added 2026-08-01: which real PC report, if any, the phone
 // picked from PCReports -- blank means free-typed, unfiled on the PC side.)
 // (MobileEditToken added 2026-08-17: one token per phone edit, so the phone
 // does not call a Sheet write an acknowledged PC update.)
+//
+// (Consumed added 2026-08-18, with the fix that made it necessary.)
+//
+// A capture used to be matched by ExpId when the phone sent one and by
+// LocalId otherwise. That is two different keys for one row. The first post
+// of a capture carries a blank ExpId, so the row is appended with LocalId L
+// and no ExpId. The PC imports it and assigns EXP-000060. The phone learns
+// that id, the user edits the capture, and the phone posts again -- this
+// time WITH expId. findRowByExpId then searches a column where every value
+// is still blank, finds nothing, and appends a SECOND row for the same
+// LocalId. Both rows export forever afterwards, one carrying the old values
+// and one the new, so every PC pull applied one and raised a conflict on the
+// other. That is the endless "updated=1 skipped=1" in mobile_pull.log on
+// 17/08/2026, and it is why one EUR 34 capture became a second LTI line.
+//
+// LocalId is the phone's permanent row identity and is now matched FIRST.
+// ExpId is only a fallback for a row whose LocalId the phone has forgotten.
+// Consumed is set by the PC once it has fully taken a capture in; a consumed
+// row stops being exported, so a finished capture leaves the conversation
+// instead of being re-offered on every pull for ever. Any phone write clears
+// it again, because a capture the user has just edited is not finished.
 //
 // Sheet columns (PCReports, row 1, exact order) -- new 2026-08-01:
 // TYPE | NAME | STATUS | REPORT_REF | UPDATED_AT | EXPENSE_COUNT | TOTAL |
@@ -50,7 +71,7 @@
 // stay on the PC only. Never edited here by
 // hand.
 
-var VERSION = '1.17';
+var VERSION = '1.18';
 var SHEET_NAME = 'MobileCaptures';
 var PC_REPORTS_SHEET_NAME = 'PCReports';
 var PC_EXPENSES_SHEET_NAME = 'PCExpenses';
@@ -80,6 +101,9 @@ function doPost(e) {
     if (data.action === 'push_expenses') {
       return doPushExpenses_(data);
     }
+    if (data.action === 'ack_captures') {
+      return doAckCaptures_(data);
+    }
 
     var sheet = getOrCreateSheet();
     var photoUrls = savePhotos(data.photos);
@@ -104,17 +128,27 @@ function doPost(e) {
       data.expId || '',
       data.baseValues ? JSON.stringify(data.baseValues) : '',
       data.syncToken || '',
-      data.deleteRequested ? 1 : 0
+      data.deleteRequested ? 1 : 0,
+      // A phone write is by definition unfinished work: whatever the PC had
+      // already acknowledged, this row now says something new.
+      0
     ];
 
     // A phone can re-send a localId it already sent once, either as a
     // retried sync (dropped response) or because the user opened it from
     // the Queue and changed something -- either way, the sheet must end
-    // up with one row that matches what the phone last saved, not a
-    // silent no-op.
-    var existingRow = data.expId
-      ? findRowByExpId(sheet, data.expId)
-      : findRowByLocalId(sheet, data.localId);
+    // up with ONE row that matches what the phone last saved.
+    //
+    // LocalId first. It is the phone's permanent identity for the row and it
+    // is present on every post. ExpId is only consulted when the LocalId is
+    // genuinely absent from the sheet, which happens when a phone was reset
+    // and rebuilt its queue from PCExpenses. Matching on ExpId first is what
+    // appended a duplicate row for a capture that already had one -- see the
+    // header note.
+    var existingRow = findRowByLocalId(sheet, data.localId);
+    if (!existingRow && data.expId) {
+      existingRow = findRowByExpId(sheet, data.expId);
+    }
     if (existingRow) {
       sheet.getRange(existingRow, 1, 1, row.length).setValues([row]);
       return respond({ ok: true, updated: true });
@@ -178,6 +212,52 @@ function doPushExpenses_(data) {
     sheet.getRange(2, 1, rows.length, 23).setValues(rows);
   }
   return respond({ ok: true, received: rows.length });
+}
+
+// The PC telling this sheet what it has finished with (2026-08-18).
+//
+// Two things happen per item, and they are deliberately NOT the same
+// decision:
+//
+//   ExpId is written unconditionally. It is identity, the PC is the only
+//   thing that can assign it, and a row that knows its own EXP_ID can never
+//   again be mistaken for a new capture. This is the write-back whose absence
+//   meant a MobileCaptures row stayed blank-ExpId for its whole life.
+//
+//   Consumed is written ONLY when the row's SyncToken still equals the token
+//   the PC actually processed. If the user edited the capture on the phone
+//   between the PC's read and this acknowledgement, the token has moved on,
+//   and marking the row consumed would drop that edit on the floor for ever
+//   -- the row would stop exporting and the PC would never see it. A
+//   mismatched token simply leaves the row live for the next pull.
+function doAckCaptures_(data) {
+  var sheet = getOrCreateSheet();
+  var items = data.captures || [];
+  var acked = 0;
+  var identified = 0;
+  var deferred = 0;
+  items.forEach(function(item) {
+    var localId = item && item.localId;
+    if (!localId) return;
+    var rowNumber = findRowByLocalId(sheet, localId);
+    if (!rowNumber && item.expId) rowNumber = findRowByExpId(sheet, item.expId);
+    if (!rowNumber) return;
+    if (item.expId) {
+      sheet.getRange(rowNumber, 17).setValue(item.expId);
+      identified += 1;
+    }
+    if (!item.consumed) return;
+    var currentToken = String(sheet.getRange(rowNumber, 19).getValue() || '');
+    var ackedToken = String(item.syncToken || '');
+    if (currentToken !== ackedToken) {
+      // The phone moved on. Leave it live so the next pull sees the new edit.
+      deferred += 1;
+      return;
+    }
+    sheet.getRange(rowNumber, 21).setValue(1);
+    acked += 1;
+  });
+  return respond({ ok: true, acked: acked, identified: identified, deferred: deferred });
 }
 
 function doGet(e) {
@@ -262,13 +342,20 @@ function exportCaptures() {
   var sheet = getOrCreateSheet();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  // 20 columns. This reads the phone's own MobileCaptures sheet, which is a
+  // 21 columns. This reads the phone's own MobileCaptures sheet, which is a
   // different shape from PCExpenses -- the edit request fields are last.
-  var values = sheet.getRange(2, 1, lastRow - 1, 20).getValues();
+  var values = sheet.getRange(2, 1, lastRow - 1, 21).getValues();
   var out = [];
   values.forEach(function(row) {
     var localId = row[1];
     if (!localId) return;
+    // A capture the PC has fully taken in is finished. Leaving it in the
+    // export meant every capture ever taken was re-offered on every pull for
+    // ever, so one bad row could not settle: it was re-examined every few
+    // minutes until something applied it again. Dropping it here also stops
+    // this function re-encoding its photos as base64 on every single run,
+    // which is most of why the export was timing out.
+    if (row[20] === 1 || row[20] === true) return;
     out.push({
       timestamp: row[0] instanceof Date ? row[0].toISOString() : String(row[0]),
       localId: localId,
@@ -289,7 +376,8 @@ function exportCaptures() {
       expId: row[16] || '',
       baseValues: row[17] || '',
       syncToken: row[18] || '',
-      deleteRequested: row[19] === 1 || row[19] === true
+      deleteRequested: row[19] === 1 || row[19] === true,
+      consumed: false
     });
   });
   return out;
@@ -415,7 +503,8 @@ function getOrCreateSheet() {
     sheet.appendRow([
       'Timestamp', 'LocalId', 'ReportType', 'ReportName', 'Date',
       'Category', 'Amount', 'Currency', 'Description', 'PaidWith', 'PhotoUrls', 'ReportRef',
-      'OcrStatus', 'OcrFields', 'OcrImageHash', 'OcrManualFields', 'ExpId', 'BaseValues', 'SyncToken', 'DeleteRequested'
+      'OcrStatus', 'OcrFields', 'OcrImageHash', 'OcrManualFields', 'ExpId', 'BaseValues',
+      'SyncToken', 'DeleteRequested', 'Consumed'
     ]);
     return sheet;
   }
@@ -425,8 +514,9 @@ function getOrCreateSheet() {
   if (String(sheet.getRange(1, 12).getValue()) !== 'ReportRef') {
     sheet.getRange(1, 12).setValue('ReportRef');
   }
-  sheet.getRange(1, 13, 1, 8).setValues([[
-    'OcrStatus', 'OcrFields', 'OcrImageHash', 'OcrManualFields', 'ExpId', 'BaseValues', 'SyncToken', 'DeleteRequested'
+  sheet.getRange(1, 13, 1, 9).setValues([[
+    'OcrStatus', 'OcrFields', 'OcrImageHash', 'OcrManualFields', 'ExpId', 'BaseValues',
+    'SyncToken', 'DeleteRequested', 'Consumed'
   ]]);
   return sheet;
 }
