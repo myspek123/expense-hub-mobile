@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.24">
+<meta name="application-version" content="3.25">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -219,7 +219,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.24</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.25</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -654,7 +654,11 @@ function toggleCardForm() {
 }
 
 function selectPaidChip(name) {
-  document.querySelectorAll('[data-paid]').forEach((b) => b.classList.toggle('on', b.dataset.paid === name));
+  const wanted = String(name || '').trim().toLocaleLowerCase();
+  document.querySelectorAll('[data-paid]').forEach((b) => {
+    const actual = String(b.dataset.paid || '').trim().toLocaleLowerCase();
+    b.classList.toggle('on', Boolean(wanted) && actual === wanted);
+  });
 }
 
 document.getElementById('card-cancel').addEventListener('click', () => {
