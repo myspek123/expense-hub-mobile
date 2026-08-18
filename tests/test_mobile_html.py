@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.26"' in HTML
-    assert '>v3.26</span>' in HTML
+    assert 'content="3.27"' in HTML
+    assert '>v3.27</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v46" in service_worker
+    assert "eh-mobile-v47" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.19';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -164,7 +164,8 @@ def test_add_many_reports_what_it_did():
     handler = HTML[HTML.index("document.getElementById('f-many').addEventListener") :]
     handler = handler[: handler.index("document.getElementById('btn-save')")]
     assert "could not be read" in handler
-    assert "Sending to the PC" in handler
+    assert "The PC will scan each receipt once" in handler
+    assert "drainScanQueue();" not in handler
 
 
 # -- 2026-08-16: a phone's cards belong to whoever is holding it ------------
