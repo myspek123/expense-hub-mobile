@@ -1730,8 +1730,15 @@ const SYNC_ICON_GLYPHS = {
   mismatch: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
   waiting: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
   pending: '<rect x="8" y="3" width="8" height="18" rx="2"/><path d="M11 18h2"/>',
-  deleting: '<path d="M4 7h16M9 7V4h6v3m-9 0 1 13h8l1-13M10 11v5m4-5v5"/>',
-  gone: '<path d="M4 7h16M9 7V4h6v3m-9 0 1 13h8l1-13M10 11v5m4-5v5"/>',
+  // A minus-in-circle, not the trash can: this is information ("removed"),
+  // and the row's own discard button (below, when it shows) is the actual
+  // trash-can action. Both used the same glyph until 2026-08-23, so a row
+  // that was gone on the PC and still had a local phone copy to clear
+  // showed what looked like two identical bins side by side -- the user's
+  // own words, "shows 2 bins... WTF" -- with no way to tell which one, if
+  // either, was actually tappable.
+  deleting: '<circle cx="12" cy="12" r="8"/><path d="M8 12h8"/>',
+  gone: '<circle cx="12" cy="12" r="8"/><path d="M8 12h8"/>',
 };
 
 function syncStatusIcon(state) {
