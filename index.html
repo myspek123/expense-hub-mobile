@@ -1166,7 +1166,18 @@ function scanStatusMarkup(item) {
 // The failure reason, on its own line under the row -- no longer stuffed
 // inside the button text (2026-08-16 put it there; 2026-08-23 moved it out
 // so the link can say one short thing, "Try again", every time).
-function scanErrorHintMarkup(item) {
+//
+// The optional `state` (queueState's own result, already computed by the
+// caller) lets this stand down once the PC has this line and agrees with
+// it. Deliberately the PC's confirmation, not the phone's own guess about
+// whether the fields look complete: "be more protective and only change it
+// to green after PC authorizes it" (user, 2026-08-23), and this is the
+// same signal the status pencil already relies on for its own green,
+// nothing new to trust. Omitted entirely, this call behaves exactly as
+// before, which is what the capture-edit screen's own use of this
+// function still needs.
+function scanErrorHintMarkup(item, state) {
+  if (state && state.key === 'synced') return '';
   const why = item.ocrStatus === 'failed' ? humanizeScanError(item.ocrError) : '';
   return why ? `<div class="hint">${escapeHtml(why)}</div>` : '';
 }
@@ -1756,7 +1767,16 @@ function syncStatusIcon(state) {
 // actual failure, the scan attempt itself not working. Tapping it always
 // scans -- this replaced two link words, "Try again" and "Scan again", that
 // did the identical thing and were never explained as the same action.
-function scanIconButton(item) {
+//
+// A failed scan stands down once the PC has this line and agrees with it
+// (queueState's 'synced', passed in as `state`), rather than staying red
+// forever the moment nothing about the failure still needs fixing. The
+// user asked for exactly this, and named the more cautious of two ways to
+// build it: "be more protective and only change it to green after PC
+// authorizes it" rather than trusting the phone's own local fields --
+// which is also less code, since it reuses the pencil's own signal instead
+// of a second completeness check.
+function scanIconButton(item, state) {
   if (item.ocrScanning) {
     return '<span class="scan-icon scanning" role="img" aria-label="Scanning">'
       + '<svg viewBox="0 0 24 24" aria-hidden="true" class="spin"><path d="M12 4a8 8 0 1 1-8 8"/></svg></span>';
@@ -1768,8 +1788,9 @@ function scanIconButton(item) {
     done: { label: 'Scanned. Tap to scan again.', svg: CAMERA },
     failed: { label: 'Scan failed. Tap to try again.', svg: CAMERA + STRIKE },
   };
+  const pcConfirmed = Boolean(state && state.key === 'synced');
   const key = item.ocrStatus === 'failed'
-    ? 'failed'
+    ? (pcConfirmed ? 'done' : 'failed')
     : (item.ocrStatus === 'done' && item.photos && item.photos.length ? 'done' : (item.ocrStatus === 'pending' ? 'pending' : ''));
   if (!key) return '';
   const s = states[key];
@@ -2231,7 +2252,7 @@ function renderQueue() {
     // Item 0/6 and item 9, 2026-08-23: extra facts about a row -- a scan
     // failure reason, a conflict explanation -- are their own muted lines
     // under the row, never squeezed into the status icon or the scan control.
-    const scanError = scanErrorHintMarkup(item);
+    const scanError = scanErrorHintMarkup(item, state);
     const conflictText = state.key === 'conflict' ? conflictReasonLine(item) : '';
     const conflictHint = conflictText ? `<div class="hint">${escapeHtml(conflictText)}</div>` : '';
     // Item, 2026-08-23: "This report was sent on the PC. The capture stays
@@ -2240,7 +2261,7 @@ function renderQueue() {
     html += `
     <div class="qrow" data-open="${escapeHtml(item.localId)}" style="cursor:pointer">
       <div>${ddmmyyyy(display.date)} &middot; ${escapeHtml(display.category || 'No category')}${description} &middot; ${escapeHtml(String(display.amount ?? '0'))} ${escapeHtml(display.currency || '')}${noReceiptGlyph(item)}${scanError}${conflictHint}</div>
-      <span class="qrow-actions">${syncStatusIcon(state)}${scanIconButton(item)}${discard}</span>
+      <span class="qrow-actions">${syncStatusIcon(state)}${scanIconButton(item, state)}${discard}</span>
     </div>`;
   });
   host.innerHTML = html;
