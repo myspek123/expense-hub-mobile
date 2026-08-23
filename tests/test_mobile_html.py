@@ -81,12 +81,19 @@ def test_a_failed_scan_says_what_went_wrong():
 def test_metadata_edit_does_not_requeue_or_run_ocr():
     save = HTML[HTML.index("async function saveCapture(opts)") :]
     save = save[: save.index("// Add many:")]
-    assert "const shouldScan = photos.length > 0 && (!prior || photoDirty);" in save
+    assert "const shouldScan = photos.length > 0 && (!prior || photoDirty) && !hasManualData;" in save
     assert "ocrScanRequested: shouldScan" in save
     assert "if (shouldScan) drainScanQueue();" in save
     drain = HTML[HTML.index("async function drainScanQueue") :]
     drain = drain[: drain.index("async function saveCapture")]
     assert "item.ocrScanRequested !== true" in drain
+
+
+def test_a_capture_already_typed_by_hand_does_not_spend_a_scan():
+    save = HTML[HTML.index("async function saveCapture(opts)") :]
+    save = save[: save.index("// Add many:")]
+    assert "const hasManualData = document.getElementById('f-amount').value.trim() !== ''" in save
+    assert "document.getElementById('f-category').value.trim() !== '';" in save
 
 
 def test_pc_card_spelling_selects_the_local_chip_case_insensitively():

@@ -1371,7 +1371,19 @@ async function saveCapture(opts) {
   // automatically only when it is first saved or the user actually changes
   // the photo; pending/finished scans have an explicit Scan now/Rescan
   // control instead of being revived by a category edit.
-  const shouldScan = photos.length > 0 && (!prior || photoDirty);
+  //
+  // Item, 2026-08-23: nor is a photo attached to a line the user has already
+  // typed by hand. "my understanding is that it always sends to scan even if
+  // all fields are filled" was correct, and every one of those was a paid
+  // scan for data already on the screen. Amount and category are the two
+  // fields that are blank by default and therefore mean something when
+  // filled; date and currency always carry a default and prove nothing.
+  // Mirrored on the PC side by _amount_is_usable() in mobile_pull.py for a
+  // brand new capture the PC itself is importing -- see that file for why
+  // this can't be decided by the phone alone.
+  const hasManualData = document.getElementById('f-amount').value.trim() !== ''
+    && document.getElementById('f-category').value.trim() !== '';
+  const shouldScan = photos.length > 0 && (!prior || photoDirty) && !hasManualData;
   const ocrFields = (prior && Array.isArray(prior.ocrFields) ? prior.ocrFields : []).filter((name) => !manualFields.has(name));
   const ocrImageHash = photos.length && !photoDirty && prior && prior.ocrImageHash
     ? prior.ocrImageHash
