@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.28">
+<meta name="application-version" content="3.29">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -275,7 +275,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.28</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.29</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1740,7 +1740,11 @@ const SYNC_ICON_GLYPHS = {
   conflict: '<path d="M4 20l1-4L15.5 5.5a2 2 0 0 1 3 3L8 19l-4 1z"/><path d="M13.5 7.5l3 3"/>',
   mismatch: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
   waiting: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
-  pending: '<rect x="8" y="3" width="8" height="18" rx="2"/><path d="M11 18h2"/>',
+  // Redrawn 2026-08-23: a bare rounded rectangle with one small line read as
+  // a capsule or a remote, not a phone -- the user's own words, "it looks
+  // nothing like a phone". A speaker slot near the top and a home button
+  // near the bottom are the two marks that actually say "mobile device".
+  pending: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M10 5h4"/><circle cx="12" cy="18" r="1"/>',
   // A minus-in-circle, not the trash can: this is information ("removed"),
   // and the row's own discard button (below, when it shows) is the actual
   // trash-can action. Both used the same glyph until 2026-08-23, so a row
