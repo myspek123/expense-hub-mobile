@@ -28,12 +28,12 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.27"' in HTML
-    assert '>v3.27</span>' in HTML
+    assert 'content="3.28"' in HTML
+    assert '>v3.28</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v47" in service_worker
+    assert "eh-mobile-v48" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
-    assert "var VERSION = '1.19';" in app_script
+    assert "var VERSION = '1.20';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
     assert "MOBILE_EDIT_RESOLUTION" in app_script
     # 1.18: LocalId is matched before ExpId, so a capture that has just been
@@ -97,8 +97,11 @@ def test_pc_card_spelling_selects_the_local_chip_case_insensitively():
 def test_scan_can_only_be_restarted_by_an_explicit_control():
     markup = HTML[HTML.index("function scanStatusMarkup(item)") :]
     markup = markup[: markup.index("function renderCaptureScanStatus")]
-    assert "Scan pending · scan now" in markup
-    assert ">Rescan</button>" in markup
+    assert '<span class="scan-pill pending">Not scanned</span>' in markup
+    assert "Scan now" in markup
+    assert 'class="act-link" data-scan-retry=' in markup
+    assert '<span class="scan-pill done">Scanned</span>' in markup
+    assert ">Scan again</button>" in markup
     retry = HTML[HTML.index("function retryScan(localId)") :]
     retry = retry[: retry.index("function failUnconfiguredScans")]
     assert "item.ocrScanRequested = true;" in retry
@@ -312,7 +315,7 @@ def test_unacknowledged_pc_snapshot_never_erases_pending_phone_values():
     refresh = HTML[HTML.index("if (pc && item.awaitingPcUpdate)") :]
     refresh = refresh[: refresh.index("function amountKey")]
     assert "item.syncMismatch = true;" in refresh
-    assert "Sync mismatch — phone data kept" in HTML
+    assert "Not confirmed by PC" in HTML
     mismatch = refresh[refresh.index("} else {\n            // No explicit acknowledgement") :]
     assert "item.description = pc.description" not in mismatch
     assert "item.amount = pc.amount" not in mismatch
@@ -611,7 +614,12 @@ def test_sync_tab_shows_pc_values_for_a_local_id_match():
     values = values[: values.index("function pcOwnsCapture")]
     assert "paidWith: pc.paidWith ?? item.paidWith" in values
     assert "When a line is on the PC, this tab shows the PC's amount, category and description." in HTML
-    assert "if (item.awaitingPcUpdate) return item;" in HTML
+    assert "if (!item.awaitingPcUpdate) {" in HTML
+    # A pending phone edit still wins over an older PC snapshot. The
+    # only values taken from the PC while awaiting are ones this phone
+    # never filled in, which is why the blank-check helpers exist.
+    assert "amountIsBlank(item.amount) && !amountIsBlank(pc.amount)" in HTML
+    assert "fieldIsBlank(item.category) && !fieldIsBlank(pc.category)" in HTML
     assert "item.awaitingPcUpdate = true;" in HTML
 
 
@@ -653,8 +661,12 @@ def test_pc_decision_can_acknowledge_from_resolution_record():
 def test_sheet_write_is_not_called_pc_confirmed_sync():
     strip = HTML[HTML.index("function updateSyncStrip(busyMessage)"):]
     strip = strip[: strip.index("// Sync now")]
-    assert "const awaiting = list.filter((i) => i.synced && i.awaitingPcUpdate);" in strip
-    assert "waiting for PC confirmation" in strip
+    # One rule for the banner and the rows: every count comes from
+    # queueState, never from a second copy of the state logic.
+    assert "queueRowsToShow().map((item) => queueState(item).key)" in strip
+    assert "key === 'conflict'" in strip
+    assert "key === 'mismatch'" in strip
+    assert "waiting for PC" in strip
     assert "PC and phone agree" in strip
     assert "All synced" not in strip
 

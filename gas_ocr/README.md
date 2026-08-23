@@ -39,9 +39,18 @@ this repository.
   "dependencies": {},
   "exceptionLogging": "STACKDRIVER",
   "runtimeVersion": "V8",
-  "oauthScopes": ["https://www.googleapis.com/auth/script.external_request"]
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive.file"
+  ]
 }
 ```
+
+The two spreadsheet scopes were added on 2026-08-23. They exist so this script
+can keep its own scan cost log, described in section 5 below. `drive.file`
+grants access only to files this script itself creates, not to the rest of
+Drive.
 
 14. Press **Ctrl+S** or click **Save project**.
 
@@ -259,3 +268,46 @@ still require the real handset:
 
 The deployment and Script Property steps above are intentionally manual because
 they require access to the user's Google account.
+
+## 11. The scan cost log (added 2026-08-23)
+
+Every billed scan passes through this script, from the phone and from the PC
+alike, so this script logs them all.
+
+Before this, scans were counted only on the PC, in
+`_ocr_costs.csv` beside the workbook. A scan run from the handset was billed to
+the same Gemini key and was written down nowhere, so the visible total was
+always lower than the amount actually charged, with no way to tell by how much.
+
+**Where the log is.** The first scan after this version is deployed creates a
+new spreadsheet in the owning Google account called **Expense Hub receipt scan
+costs**, and remembers its id in a Script Property named `COST_SHEET_ID`. To
+get its address, open the Apps Script editor, choose `showCostSheetUrl` in the
+function dropdown, click **Run**, and read the URL from the execution log. The
+URL is deliberately not served over the web.
+
+**What each row holds.**
+
+| Column | Meaning |
+|---|---|
+| `When` | Time of the call |
+| `Source` | `phone` or `pc` |
+| `RequestId` | Ties the row back to a capture |
+| `Model` | Which Gemini model answered |
+| `Outcome` | `ok`, or the failure code |
+| `InputTokens` / `OutputTokens` / `ThinkingTokens` / `TotalTokens` | As reported by Google |
+| `USD` | Estimated cost of that one call |
+
+**Failed calls are logged too, with zero tokens and zero cost.** That is on
+purpose. A phone scan that fails with "Failed to fetch" may have died before
+Google was ever asked, or after Google had already answered and been paid. A
+row here with an `Outcome` other than `ok` and a nonzero token count is the
+second case. Without this there was no way to tell them apart.
+
+**The prices are hardcoded and will go stale.** They live in `OCR_PRICES` at
+the top of `ocr_proxy.gs`, and are duplicated in
+`C:\Users\2simp\expense-hub\expense_hub\ocr_cost.py`. Correct both together.
+
+**`_ocr_costs.csv` still exists and still records PC scans only.** It is not
+the whole picture and is no longer the place to look for a monthly total. Use
+the spreadsheet.

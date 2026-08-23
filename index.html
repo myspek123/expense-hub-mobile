@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.27">
+<meta name="application-version" content="3.28">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -101,7 +101,15 @@
   .icon-action { width: 40px; height: 40px; flex: 0 0 40px; display: inline-grid; place-items: center; border: 1px solid currentColor; border-radius: 8px; background: #fff; padding: 0; }
   .icon-action svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .icon-action.back { color: var(--navy); }
-  .icon-action.many { color: #7a3e9d; }
+  /* Item 01, 2026-08-23: the icon alone already failed once -- the user could
+     not remember what it did. Words beside it now, not instead of it. Auto
+     width so "Add many" has room; the square back/delete buttons next to it
+     are unaffected because this only targets the .many modifier. */
+  .icon-action.many {
+    color: #7a3e9d; width: auto; flex: 0 0 auto; padding: 0 12px 0 10px; gap: 6px;
+    display: inline-flex; align-items: center;
+  }
+  .icon-action.many .label { font-size: 13px; font-weight: 700; white-space: nowrap; }
   .icon-action.delete { color: var(--danger); margin-left: auto; }
   .edit-banner-text { color: var(--amber); font-size: 12px; }
   #toast { position: fixed; left: 16px; right: 16px; bottom: 76px; padding: 10px 14px; border-radius: 8px; font-size: 13px; z-index: 30; display: none; }
@@ -116,8 +124,8 @@
   .btn.danger { border-color: var(--danger); color: var(--danger); background: #fff; }
   .qrow { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
   .qrow .status { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
-  .qrow .status.pending { background: var(--amber-bg); color: var(--amber); }
-  .qrow .status.waiting { background: #eef2fa; color: var(--navy); }
+  .qrow .status.pending, .qrow .status.deleting { background: var(--amber-bg); color: var(--amber); }
+  .qrow .status.waiting, .qrow .status.mismatch { background: #eef2fa; color: var(--navy); }
   .qrow .status.synced { background: var(--green-bg); color: var(--green); }
   .qrow .status.conflict { background: var(--amber-bg); color: var(--amber); font-weight: 700; }
   /* Grey, not red: the PC discarding a capture you asked it to discard
@@ -128,9 +136,20 @@
   .iconbtn.danger { color: var(--danger); border-color: #f0cbc8; }
   .queue-discard { margin-left: 7px; }
   .scan-pill { display: inline-block; margin-left: 8px; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
-  .scan-pill.pending, .scan-pill.failed { background: var(--amber-bg); color: var(--amber); }
+  .scan-pill.pending, .scan-pill.failed, .scan-pill.scanning { background: var(--amber-bg); color: var(--amber); }
   .scan-pill.done { background: var(--green-bg); color: var(--green); }
-  .scan-retry { border: 0; font: inherit; cursor: pointer; }
+  /* Item 0/6, 2026-08-23: the pill above used to BE the button, so a status
+     and a control looked identical and the user tapped what he thought was a
+     label -- it spent money on a scan. The pill is now pure information, a
+     <span>, never clickable. Anything tappable is this link instead, styled
+     like the desktop app's action links so a phone action always looks the
+     same as a PC one. Padding plus a matching negative margin gives it a
+     32px tap target without pushing the row taller. */
+  .act-link {
+    display: inline-block; margin: -9px 0 -9px 8px; padding: 9px 4px;
+    border: 0; background: none; font: inherit; font-weight: 600;
+    color: #2e6ad3; text-decoration: underline; cursor: pointer;
+  }
   .scan-mark { display: none; margin-left: 6px; color: var(--green); font-size: 10px; font-weight: 700; text-transform: none; letter-spacing: 0; }
   .field.scanned .scan-mark { display: inline; }
   .capture-scan-status { margin: 0 0 12px; min-height: 0; }
@@ -219,7 +238,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.27</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.28</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -237,7 +256,14 @@
             <svg viewBox="0 0 24 24"><path d="M19 12H5"></path><path d="M12 19l-7-7 7-7"></path></svg>
           </button>
           <button type="button" id="edit-many" class="icon-action many" aria-label="Add many receipts" title="Add many receipts">
-            <svg viewBox="0 0 24 24"><rect x="4" y="5" width="14" height="14"></rect><path d="M7 2h13v13"></path><path d="M7 16l3-4 3 3 2-2 3 3"></path></svg>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 6h12v14l-1.5-1-1.5 1-1.5-1-1.5 1-1.5-1-1.5 1-1.5-1-1.5 1V6z"></path>
+              <path d="M8 2h12v14"></path>
+              <path d="M7 10h6"></path>
+              <path d="M7 13h4"></path>
+              <path d="M17 5v6M14 8h6"></path>
+            </svg>
+            <span class="label">Add many</span>
           </button>
         </div>
         <button type="button" id="edit-delete" class="icon-action delete hidden" aria-label="Delete" title="Delete">
@@ -374,6 +400,7 @@
     <p class="hint">When a line is on the PC, this tab shows the PC's amount, category and description.</p>
     <div id="queue-list"></div>
     <div id="queue-actions"></div>
+    <p class="hint" id="pc-last-seen"></p>
   </section>
 
   <section id="tab-settings">
@@ -431,6 +458,9 @@ const REPORTS_CACHE_KEY = 'eh_mobile_reports_cache';
 const EXPENSES_CACHE_KEY = 'eh_mobile_expenses_cache';
 const PENDING_REPORTS_KEY = 'eh_mobile_pending_reports';
 const LAST_REPORT_KEY = 'eh_mobile_last_report';
+// Item 8, 2026-08-23: the phone never said how old the PC's information was,
+// so "PC and phone agree" could be days stale and still read as live.
+const PC_LAST_SEEN_KEY = 'eh_mobile_pc_last_seen';
 // Where the user was, so a refresh comes back to it (see activateTab).
 const TAB_KEY = 'eh_mobile_active_tab';
 const OPEN_REPORT_KEY = 'eh_mobile_open_report';
@@ -1070,31 +1100,44 @@ function renderScanMarks(fields) {
   });
 }
 
+// Item 0/6, 2026-08-23: the pill below used to BE the button, so a status
+// and a control looked identical and the user tapped what he thought was a
+// label and it spent money on a scan. The pill is now pure information, a
+// <span>, never clickable; wherever there is something to actually do about
+// it, a separate act-link sits next to it. The failure reason moved out of
+// the button text entirely -- see scanErrorHintMarkup, rendered as its own
+// line under the row.
 function scanStatusMarkup(item) {
+  if (item.ocrScanning) {
+    return '<span class="scan-pill scanning">Scanning...</span>';
+  }
   if (item.ocrStatus === 'pending') {
-    return '<button type="button" class="scan-pill pending scan-retry" data-scan-retry="'
-      + escapeHtml(item.localId) + '">Scan pending · scan now</button>';
+    return '<span class="scan-pill pending">Not scanned</span>'
+      + '<button type="button" class="act-link" data-scan-retry="' + escapeHtml(item.localId) + '">Scan now</button>';
   }
   if (item.ocrStatus === 'failed') {
-    // The reason, not just the fact. "Scan failed, retry" gave no way to tell
-    // a missing key from an unreadable photo (2026-08-16).
-    const why = String(item.ocrError || '').trim();
-    return '<button type="button" class="scan-pill failed scan-retry" data-scan-retry="'
-      + escapeHtml(item.localId) + '">'
-      + (why ? escapeHtml(why) + ' - retry' : 'Scan failed, retry')
-      + '</button>';
+    return '<span class="scan-pill failed">Scan failed</span>'
+      + '<button type="button" class="act-link" data-scan-retry="' + escapeHtml(item.localId) + '">Try again</button>';
   }
   if (item.ocrStatus === 'done' && item.photos && item.photos.length) {
-    return '<button type="button" class="scan-pill done scan-retry" data-scan-retry="'
-      + escapeHtml(item.localId) + '">Rescan</button>';
+    return '<span class="scan-pill done">Scanned</span>'
+      + '<button type="button" class="act-link" data-scan-retry="' + escapeHtml(item.localId) + '">Scan again</button>';
   }
   return '';
+}
+
+// The failure reason, on its own line under the row -- no longer stuffed
+// inside the button text (2026-08-16 put it there; 2026-08-23 moved it out
+// so the link can say one short thing, "Try again", every time).
+function scanErrorHintMarkup(item) {
+  const why = item.ocrStatus === 'failed' ? String(item.ocrError || '').trim() : '';
+  return why ? `<div class="hint">${escapeHtml(why)}</div>` : '';
 }
 
 function renderCaptureScanStatus(item) {
   const host = document.getElementById('capture-scan-status');
   if (!host) return;
-  host.innerHTML = scanStatusMarkup(item);
+  host.innerHTML = scanStatusMarkup(item) + scanErrorHintMarkup(item);
   const retry = host.querySelector('[data-scan-retry]');
   if (retry) retry.addEventListener('click', () => retryScan(item.localId));
 }
@@ -1109,6 +1152,19 @@ function retryScan(localId) {
   if (editingLocalId === localId) renderCaptureScanStatus(item);
   renderQueue();
   drainScanQueue(true);
+}
+
+// Item 0/6, 2026-08-23: a phone killed or reloaded mid-scan would otherwise
+// keep item.ocrScanning true for ever, and the row would say "Scanning..."
+// forever with nothing able to clear it. Run once at load, before the
+// startup drainScanQueue() call below gets a chance to set fresh ones.
+function clearStaleScanningFlags() {
+  const list = load();
+  let changed = false;
+  list.forEach((item) => {
+    if (item.ocrScanning) { item.ocrScanning = false; changed = true; }
+  });
+  if (changed) save(list);
 }
 
 function failUnconfiguredScans() {
@@ -1151,6 +1207,7 @@ function applyScanResult(item, result) {
   item.ocrFields = OCR_FIELDS.filter((name) => filled.has(name));
   item.ocrStatus = 'done';
   item.ocrScanRequested = false;
+  item.ocrError = '';
   if (editingLocalId === item.localId) {
     renderScanMarks(item.ocrFields);
     renderCaptureScanStatus(item);
@@ -1180,6 +1237,15 @@ async function drainScanQueue(userAsked) {
     for (const item of list) {
       if (item.ocrStatus !== 'pending' || item.ocrScanRequested !== true
         || !item.photos || !item.photos.length) continue;
+      // Item 0/6, 2026-08-23: "Scanning..." is shown the moment the request
+      // goes out, saved immediately so the pill is never wrong while the
+      // fetch is in flight. Cleared on both exit paths below, and again at
+      // load time (see clearStaleScanningFlags) in case a phone was killed
+      // mid-scan and never got to clear it itself.
+      item.ocrScanning = true;
+      save(list);
+      renderQueue();
+      if (editingLocalId === item.localId) renderCaptureScanStatus(item);
       try {
         const photo = dataUrlOf(item.photos[0]);
         const parts = dataUrlParts(photo);
@@ -1204,11 +1270,13 @@ async function drainScanQueue(userAsked) {
         }
         applyScanResult(item, result);
         if (!item.ocrImageHash) item.ocrImageHash = await hashDataUrl(photo);
+        item.ocrScanning = false;
         changed = true;
       } catch (error) {
         item.ocrStatus = 'failed';
         item.ocrError = String((error && error.message) || 'scan failed');
         item.ocrScanRequested = false;
+        item.ocrScanning = false;
         if (editingLocalId === item.localId) renderCaptureScanStatus(item);
         changed = true;
       }
@@ -1271,7 +1339,15 @@ async function saveCapture(opts) {
     paidWith: paidWith,
     photos: photos,
     ocrStatus: shouldScan ? 'pending' : (photos.length && prior ? (prior.ocrStatus || '') : ''),
+    // Item 5, 2026-08-23: this object is rebuilt from scratch on every save.
+    // ocrStatus was carried forward but ocrError was not, so editing a failed
+    // capture kept the "failed" state and lost the explanation -- the UI fell
+    // back to a bare "Scan failed" with no reason. Same condition as
+    // ocrStatus above: inherited when this is not a fresh scan, reset when it
+    // is.
+    ocrError: shouldScan ? '' : (photos.length && prior ? (prior.ocrError || '') : ''),
     ocrScanRequested: shouldScan,
+    ocrScanning: false,
     ocrFields: ocrFields,
     ocrManualFields: Array.from(manualFields),
     ocrFillableFields: OCR_FIELDS.filter((name) => !manualFields.has(name)),
@@ -1552,7 +1628,7 @@ function queueRowsToShow() {
 // separate step to pull a capture in, so the two waits are named separately.
 function queueState(item) {
   if (item.deleteError) return { key: 'conflict', label: 'PC refused deletion' };
-  if (item.deleteRequested) return { key: 'pending', label: 'Deletion requested on PC' };
+  if (item.deleteRequested) return { key: 'deleting', label: 'Deletion requested on PC' };
   if (!item.synced) return { key: 'pending', label: 'On this phone only' };
   // Checked before anything else: the PC saying it threw this away answers
   // the question that every other state here is still guessing at. Without
@@ -1561,7 +1637,10 @@ function queueState(item) {
   if (deletedOnPc(item)) return { key: 'gone', label: 'Removed on the PC' };
   const pc = matchingPcLine(item);
   if (pc && pc.mobileEditConflict) return { key: 'conflict', label: 'Conflict on PC' };
-  if (item.syncMismatch) return { key: 'conflict', label: 'Sync mismatch — phone data kept' };
+  // Not a conflict: this only means the phone pushed and nobody has
+  // acknowledged it yet, almost always just the PC not having run. Reading it
+  // as "conflict on PC" was misleading (user, 2026-08-23, item 7).
+  if (item.syncMismatch) return { key: 'mismatch', label: 'Not confirmed by PC' };
   if (item.awaitingPcUpdate) return { key: 'waiting', label: 'Waiting for PC confirmation' };
   if (pc) {
     return { key: 'synced', label: 'PC and phone agree' };
@@ -1617,19 +1696,148 @@ function pcConflictFor(item) {
   return pc && pc.mobileEditConflict ? pc : null;
 }
 
+// Item 9, 2026-08-23: "Conflict on PC" said nothing else, so the user could
+// not tell what disagreed without walking to the PC. pc.mobileEditConflict is
+// a JSON string carrying "base" (the PC's own line before the clash) and
+// "request" (what caused it); "source":"ocr" means the PC's own receipt scan
+// proposed the change, absent means a phone edit did.
+function conflictFieldLabel(key) {
+  return {
+    date: 'date', amount: 'amount', currency: 'currency', category: 'category',
+    description: 'description', paid_with: 'paid with', report_ref: 'report'
+  }[key] || key;
+}
+
+function conflictReportName(ref, explicitName) {
+  if (explicitName) return explicitName;
+  const found = getCachedReports().find((r) => r.reportRef === ref);
+  return (found && found.name) || 'no report';
+}
+
+// What counts as a DIFFERENCE, as opposed to what gets shown.
+// Mirrors _mobile_edit_values in expense_hub/mobile_pull.py: amount to two
+// decimals, currency upper, paid with casefolded, everything else trimmed.
+// Without this the phone named fields the PC does not consider changed at
+// all ("34.1" vs "34.10", "Pro card" vs "pro card") and crowded out the
+// real one. Seen on EXP-000066, 2026-08-23.
+function conflictFieldKey(field, side, isRequestSide) {
+  if (field === 'report_ref') {
+    return String(side.report_ref || '').trim();
+  }
+  const raw = side[field];
+  const text = String(raw === null || raw === undefined ? '' : raw).trim();
+  if (field === 'amount') {
+    const number = Number(text.replace(',', '.'));
+    return Number.isFinite(number) && text !== '' ? number.toFixed(2) : text;
+  }
+  if (field === 'currency') return text.toUpperCase();
+  if (field === 'paid_with') return text.toLowerCase();
+  if (field === 'date') return text.slice(0, 10);
+  return text;
+}
+
+function conflictFieldDisplay(field, base, request, isRequestSide) {
+  const side = isRequestSide ? request : base;
+  if (field === 'report_ref') {
+    return conflictReportName(side.report_ref, isRequestSide ? side.report_name : '');
+  }
+  const value = side[field];
+  if (field === 'date') return value ? ddmmyyyy(value) : '(blank)';
+  return (value === '' || value === null || value === undefined) ? '(blank)' : String(value);
+}
+
+// One short line naming what actually disagreed. Screen width is about
+// 360px, so at most two fields are named; a third or more collapses to
+// "and more". "Fix on PC." always closes the line unless a value already
+// names PC -- printing it twice reads like a stutter, not emphasis.
+function conflictReasonLine(item) {
+  const FALLBACK = 'Open it on the PC to choose a version.';
+  const pc = matchingPcLine(item);
+  const raw = pc && pc.mobileEditConflict;
+  if (!raw) return '';
+  let data;
+  try { data = JSON.parse(raw); } catch (e) { return FALLBACK; }
+  const base = (data && data.base) || {};
+  const request = (data && data.request) || {};
+  const fields = ['date', 'amount', 'currency', 'category', 'description', 'paid_with', 'report_ref'];
+  const differing = fields.filter((f) =>
+    conflictFieldKey(f, base, false) !== conflictFieldKey(f, request, true)
+  );
+  if (!differing.length) return FALLBACK;
+  const named = differing.slice(0, 2);
+  const more = differing.length > 2 ? ' and more' : '';
+  const isOcr = data.source === 'ocr';
+  let body;
+  if (isOcr) {
+    const clauses = named.map((f) => {
+      const value = conflictFieldDisplay(f, base, request, true);
+      return `the ${conflictFieldLabel(f)} as ${value}`;
+    });
+    body = 'Scan read ' + clauses.join(' and ') + more + '.';
+  } else if (named.length === 1 && !more) {
+    const requestValue = conflictFieldDisplay(named[0], base, request, true);
+    const baseValue = conflictFieldDisplay(named[0], base, request, false);
+    body = `Phone asked for ${requestValue}, PC has ${baseValue}.`;
+  } else {
+    const requestClauses = named.map((f) => {
+      const value = conflictFieldDisplay(f, base, request, true);
+      return `${conflictFieldLabel(f)} ${value}`;
+    });
+    const baseClauses = named.map((f) => {
+      const value = conflictFieldDisplay(f, base, request, false);
+      return `${conflictFieldLabel(f)} ${value}`;
+    });
+    body = `Phone asked for ${requestClauses.join(', ')}${more}, PC has ${baseClauses.join(', ')}.`;
+  }
+  // NEVER SAY PC TWICE IN ONE LINE. The user's words on 2026-08-23: writing
+  // it twice "looks like an error". So the test is on the finished sentence,
+  // not only on the values inside it. "Phone asked for X, PC has Y" already
+  // names it once and must not gain " Fix on PC." on the end; a scan line
+  // ("Scan read the date as 26/08/2022") names nothing and does gain it.
+  return body.includes('PC') ? body : body + ' Fix on PC.';
+}
+
+// Item: THE BLANK THAT HIDES A REAL VALUE, 2026-08-23. A fresh phone edit
+// must never be overwritten by an older PC snapshot -- that is the whole
+// point of awaitingPcUpdate. But it never clears while a line is in conflict,
+// and on a field this phone never filled in there is no edit to protect.
+// Real case, 22/08/2026: the PC held Parking at 11.50 EUR read by its own
+// scan, this phone had never had an amount for that capture, and this tab
+// showed a blank amount for ever, while the text at the top of this screen
+// promises it shows the PC's amount. Fixed field by field, not by dropping
+// the awaitingPcUpdate protection altogether: 0 is a real amount and is
+// never treated as blank.
+function amountIsBlank(value) {
+  if (value === '' || value === null || value === undefined) return true;
+  return !Number.isFinite(Number(value));
+}
+
+function fieldIsBlank(value) {
+  return value === '' || value === null || value === undefined;
+}
+
 function syncDisplayValues(item) {
   const pc = matchingPcLine(item);
   if (!pc) return item;
   // A successful phone-to-Sheet push can be visible there before the PC has
   // pulled the change and rewritten PCExpenses. During that short window the
   // local edit is the newest value, so do not paint the older PC snapshot over
-  // it on the Sync tab.
-  if (item.awaitingPcUpdate) return item;
+  // it on the Sync tab -- unless the phone never had a value for that field
+  // in the first place, in which case there is nothing of the phone's to
+  // protect and showing a blank is simply wrong (see comment above).
+  if (!item.awaitingPcUpdate) {
+    return Object.assign({}, item, {
+      amount: pc.amount ?? item.amount,
+      category: pc.category ?? item.category,
+      description: pc.description ?? item.description,
+      paidWith: pc.paidWith ?? item.paidWith,
+    });
+  }
   return Object.assign({}, item, {
-    amount: pc.amount ?? item.amount,
-    category: pc.category ?? item.category,
-    description: pc.description ?? item.description,
-    paidWith: pc.paidWith ?? item.paidWith,
+    amount: amountIsBlank(item.amount) && !amountIsBlank(pc.amount) ? pc.amount : item.amount,
+    category: fieldIsBlank(item.category) && !fieldIsBlank(pc.category) ? pc.category : item.category,
+    description: fieldIsBlank(item.description) && !fieldIsBlank(pc.description) ? pc.description : item.description,
+    paidWith: fieldIsBlank(item.paidWith) && !fieldIsBlank(pc.paidWith) ? pc.paidWith : item.paidWith,
   });
 }
 
@@ -1792,8 +2000,29 @@ function requestPcDelete(source) {
   return true;
 }
 
+// Item 8, 2026-08-23: one line, bottom of the Sync tab only -- not on every
+// row -- saying how old the PC's own information is. The Apps Script returns
+// pcLastSeen as an ISO 8601 UTC timestamp on the reports and expenses GET
+// responses; an older deployment that does not send it yet must not crash,
+// it just reads as unknown.
+function renderPcLastSeen() {
+  const host = document.getElementById('pc-last-seen');
+  if (!host) return;
+  const raw = localStorage.getItem(PC_LAST_SEEN_KEY) || '';
+  const seen = raw ? new Date(raw) : null;
+  if (!seen || isNaN(seen.getTime())) {
+    host.textContent = 'PC check in time unknown';
+    return;
+  }
+  const localIso = `${seen.getFullYear()}-${String(seen.getMonth() + 1).padStart(2, '0')}-${String(seen.getDate()).padStart(2, '0')}`;
+  const hh = String(seen.getHours()).padStart(2, '0');
+  const mm = String(seen.getMinutes()).padStart(2, '0');
+  host.textContent = `PC last checked in ${ddmmyyyy(localIso)} ${hh}:${mm}`;
+}
+
 function renderQueue() {
   const list = queueRowsToShow();
+  renderPcLastSeen();
   const host = document.getElementById('queue-list');
   if (!list.length) {
     host.innerHTML = '<p class="hint">Nothing waiting. Everything this phone captured is on the PC.</p>';
@@ -1839,9 +2068,15 @@ function renderQueue() {
       html += `<div class="band">${escapeHtml(group)}</div>`;
       lastGroup = group;
     }
+    // Item 0/6 and item 9, 2026-08-23: extra facts about a row -- a scan
+    // failure reason, a conflict explanation -- are their own muted lines
+    // under the row, never squeezed into the status pill or the action link.
+    const scanError = scanErrorHintMarkup(item);
+    const conflictText = state.key === 'conflict' ? conflictReasonLine(item) : '';
+    const conflictHint = conflictText ? `<div class="hint">${escapeHtml(conflictText)}</div>` : '';
     html += `
     <div class="qrow" data-open="${escapeHtml(item.localId)}" style="cursor:pointer">
-      <div>${ddmmyyyy(display.date)} &middot; ${escapeHtml(display.category || 'No category')}${description} &middot; ${escapeHtml(String(display.amount ?? '0'))} ${escapeHtml(display.currency || '')}${item.sentWarning ? '<div class="hint">This report was sent on the PC. The capture stays here for 30 days.</div>' : ''}</div>
+      <div>${ddmmyyyy(display.date)} &middot; ${escapeHtml(display.category || 'No category')}${description} &middot; ${escapeHtml(String(display.amount ?? '0'))} ${escapeHtml(display.currency || '')}${item.sentWarning ? '<div class="hint">This report was sent on the PC. The capture stays here for 30 days.</div>' : ''}${scanError}${conflictHint}</div>
       <span><span class="status ${state.key}">${state.label}</span>${scanStatusMarkup(item)}${discard}</span>
     </div>`;
   });
@@ -1874,19 +2109,29 @@ function updateSyncStrip(busyMessage) {
     strip.innerHTML = escapeHtml(busyMessage);
     return;
   }
-  const list = load();
-  const pending = list.filter((i) => !i.synced).length;
-  const awaiting = list.filter((i) => i.synced && i.awaitingPcUpdate);
-  const conflicts = awaiting.filter((i) => pcConflictFor(i) || i.syncMismatch).length;
-  if (pending) {
+  // Item 7, 2026-08-23: every count here comes from queueState(item), the one
+  // place that already decides what a row's status is. The banner used to
+  // compute its own counts and folded syncMismatch into "conflict on PC",
+  // which is wrong: syncMismatch means the phone pushed and nobody has
+  // acknowledged it yet, almost always just the PC not having run.
+  const states = queueRowsToShow().map((item) => queueState(item).key);
+  const notSynced = states.filter((key) => key === 'pending').length;
+  const conflicts = states.filter((key) => key === 'conflict').length;
+  const mismatches = states.filter((key) => key === 'mismatch').length;
+  // A requested deletion is a wait on the PC, not an unsent capture.
+  const waiting = states.filter((key) => key === 'waiting' || key === 'deleting').length;
+  if (notSynced) {
     strip.className = 'pending';
-    strip.innerHTML = pending + ' not synced <button id="retry-btn" type="button">Sync now</button>';
+    strip.innerHTML = `${notSynced} not synced <button id="retry-btn" type="button">Sync now</button>`;
   } else if (conflicts) {
     strip.className = 'pending';
-    strip.innerHTML = conflicts + ' conflict on PC <button id="retry-btn" type="button">Sync now</button>';
-  } else if (awaiting.length) {
+    strip.innerHTML = `${conflicts} conflict${conflicts === 1 ? '' : 's'} on PC <button id="retry-btn" type="button">Sync now</button>`;
+  } else if (mismatches) {
     strip.className = 'pending';
-    strip.innerHTML = awaiting.length + ' waiting for PC confirmation <button id="retry-btn" type="button">Sync now</button>';
+    strip.innerHTML = `${mismatches} not confirmed by PC <button id="retry-btn" type="button">Sync now</button>`;
+  } else if (waiting) {
+    strip.className = 'pending';
+    strip.innerHTML = `${waiting} waiting for PC <button id="retry-btn" type="button">Sync now</button>`;
   } else {
     strip.className = 'ok';
     strip.innerHTML = 'PC and phone agree <button id="retry-btn" type="button">Sync now</button>';
@@ -2018,6 +2263,10 @@ async function fetchReports() {
   }
   const code = getSyncCode();
   const codePart = code ? '&code=' + encodeURIComponent(code) : '';
+  // Item 8: the expenses response below is the primary source for
+  // pcLastSeen; this is only a fallback for a moment where one endpoint has
+  // it and the other has not been redeployed yet.
+  let reportsPcLastSeen = '';
   try {
     const res = await syncFetch(url + (url.includes('?') ? '&' : '?') + 'action=reports' + codePart);
     const json = await res.json();
@@ -2025,6 +2274,7 @@ async function fetchReports() {
     if (json.ok) {
       reconcileLocalReports(json.reports || []);
       localStorage.setItem(REPORTS_CACHE_KEY, JSON.stringify(json.reports || []));
+      reportsPcLastSeen = String(json.pcLastSeen || '');
       renderReports();
       pruneQueueForSentReports();
     }
@@ -2039,6 +2289,9 @@ async function fetchReports() {
     if (json.ok) {
       const expenses = json.expenses || [];
       localStorage.setItem(EXPENSES_CACHE_KEY, JSON.stringify(expenses));
+      const pcLastSeen = String(json.pcLastSeen || '') || reportsPcLastSeen;
+      if (pcLastSeen) localStorage.setItem(PC_LAST_SEEN_KEY, pcLastSeen);
+      renderPcLastSeen();
       const queue = load();
       let changed = false;
       queue.forEach((item) => {
@@ -2093,7 +2346,7 @@ async function fetchReports() {
           // so an ordinary PC edit was visible only in the cached list and a
           // later phone edit could resurrect the stale local value. The PC row
           // already matched this capture by stable EXP_ID/localId, so the
-          // sheet row—not the possibly stale local `synced` flag—proves that
+          // sheet row, not the possibly stale local `synced` flag, proves that
           // the PC owns the current values. The receipt/photo and localId
           // remain phone-owned.
           if (item.syncMismatch && pcLineMatchesLocal(item, pc)) {
@@ -2587,13 +2840,10 @@ function localLinesForReport(reportRef) {
       // Synced means the Sheet has it; the PC still has to pull it in and push
       // its list back before it becomes a real line. Two different waits, and
       // the user can tell them apart.
-      pendingLabel: item.deleteRequested
-        ? 'Deletion requested on PC'
-        : item.syncMismatch
-          ? 'Sync mismatch — phone data kept'
-          : item.synced
-            ? (pcConflictFor(item) ? 'Conflict on PC' : 'Waiting for PC confirmation')
-          : 'Not synced',
+      // Item 7, 2026-08-23: one rule for every label. Whatever
+      // queueState(item) decides for the Sync tab is exactly what this line
+      // says too, so the two screens can never disagree about one capture.
+      pendingLabel: queueState(item).label,
     }));
 }
 
@@ -2623,11 +2873,9 @@ function mergedLinesForReport(reportRef) {
       amount: edit.amount,
       currency: edit.currency,
       pending: true,
-      pendingLabel: edit.deleteRequested
-        ? 'Deletion requested on PC'
-        : edit.syncMismatch
-          ? 'Sync mismatch — phone data kept'
-          : (line.mobileEditConflict ? 'Conflict on PC' : 'Waiting for PC confirmation'),
+      // Same rule as localLinesForReport above: the label comes from
+      // queueState(edit), never a repeated string test of its own.
+      pendingLabel: queueState(edit).label,
       mobileDeleteError: edit.deleteError || line.mobileDeleteError || '',
       hasReceipt: line.hasReceipt
     });
@@ -2814,6 +3062,7 @@ updateSyncStrip();
 renderReports();
 restoreLastScreen();
 attemptSync();
+clearStaleScanningFlags();
 drainScanQueue();
 fetchReports();
 </script>

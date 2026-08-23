@@ -1,5 +1,5 @@
 // Expense Hub Mobile -- Apps Script Web App
-// VERSION 1.19
+// VERSION 1.20
 // Paste this whole file into Extensions > Apps Script on the Google Sheet
 // created for mobile capture. Deploy > Manage deployments > edit (pencil)
 // > Version: New version > Deploy, so the URL you already pasted into the
@@ -7,7 +7,7 @@
 //
 // After redeploying, open the Web App URL directly in a browser (paste the
 // same URL from the phone's Settings field into any browser address bar).
-// The JSON response includes "version":"1.19" -- if it still says an older
+// The JSON response includes "version":"1.20" -- if it still says an older
 // number, the redeploy did not actually take and that is the bug, not the
 // code below.
 //
@@ -71,7 +71,7 @@
 // stay on the PC only. Never edited here by
 // hand.
 
-var VERSION = '1.19';
+var VERSION = '1.20';
 var SHEET_NAME = 'MobileCaptures';
 var PC_REPORTS_SHEET_NAME = 'PCReports';
 var PC_EXPENSES_SHEET_NAME = 'PCExpenses';
@@ -183,7 +183,36 @@ function doPushReports_(data) {
   if (rows.length) {
     sheet.getRange(2, 1, rows.length, 8).setValues(rows);
   }
+  notePcCheckIn_();
   return respond({ ok: true, received: rows.length });
+}
+
+// WHEN THE PC LAST SPOKE TO THIS SHEET, recorded here rather than on any row.
+//
+// The phone had no way to tell a fresh answer from a stale one. "PC and phone
+// agree" is read as "agreed just now", and it can just as easily mean the PC
+// has not run since Tuesday. The 30 minute sync task is invisible: it runs
+// pythonw.exe with no window, so nothing on either screen says whether it is
+// alive (2026-08-23).
+//
+// This is a Script Property and not a Sheet column on purpose. It is one fact
+// about the whole endpoint, not a fact about any report or expense, and it
+// must not force a schema change on a sheet the PC rewrites wholesale.
+function notePcCheckIn_() {
+  try {
+    PropertiesService.getScriptProperties()
+      .setProperty('PC_LAST_SEEN', new Date().toISOString());
+  } catch (err) {
+    // Never fail a push over its own timestamp.
+  }
+}
+
+function pcLastSeen_() {
+  try {
+    return PropertiesService.getScriptProperties().getProperty('PC_LAST_SEEN') || '';
+  } catch (err) {
+    return '';
+  }
 }
 
 // Same delete-then-rewrite pattern as doPushReports_, one row per expense
@@ -211,6 +240,7 @@ function doPushExpenses_(data) {
   if (rows.length) {
     sheet.getRange(2, 1, rows.length, 23).setValues(rows);
   }
+  notePcCheckIn_();
   return respond({ ok: true, received: rows.length });
 }
 
@@ -267,11 +297,17 @@ function doGet(e) {
   if (!codeOk_(code)) {
     return respond({ ok: false, error: 'Invalid or missing sync code.' });
   }
+  // pcLastSeen rides along on both reads so the phone can say how old the
+  // answer is instead of implying it is live. See notePcCheckIn_.
   if (e.parameter && e.parameter.action === 'reports') {
-    return respond({ ok: true, version: VERSION, reports: listPCReports() });
+    return respond({
+      ok: true, version: VERSION, reports: listPCReports(), pcLastSeen: pcLastSeen_()
+    });
   }
   if (e.parameter && e.parameter.action === 'expenses') {
-    return respond({ ok: true, version: VERSION, expenses: listPCExpenses() });
+    return respond({
+      ok: true, version: VERSION, expenses: listPCExpenses(), pcLastSeen: pcLastSeen_()
+    });
   }
   // Raw, ungrouped rows for the real PC Expense Hub app's pull-back job
   // (expense_hub/mobile_pull.py). Each photo is re-read from Drive and

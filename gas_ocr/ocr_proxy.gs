@@ -2,15 +2,43 @@
 // This is a separate Apps Script Web App from apps-script.gs. It does not
 // read or write the mobile sync Sheet and has its own deployment.
 
-var OCR_VERSION = '1.7';
+var OCR_VERSION = '1.8';
 var OCR_MODEL = 'gemini-2.5-flash';
 var OCR_MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
+// EVERY BILLED SCAN PASSES THROUGH THIS SCRIPT, from the phone and from the
+// PC alike, so this is the only place that can count them all.
+//
+// Scans used to be counted on the PC instead, in _ocr_costs.csv, written by
+// expense_hub/ocr_worker.py. That file therefore recorded PC scans and no
+// others. A scan run from the handset was billed to the same Gemini key and
+// appeared nowhere at all, so the total the user could see was always lower
+// than the total he was charged, with no way to tell by how much
+// (2026-08-23).
+//
+// USD per million tokens, input then output. Google bills "thinking" at the
+// output rate. THESE PRICES WILL GO STALE. They are duplicated in
+// expense_hub/ocr_cost.py; correct both together.
+var OCR_PRICES = {
+  'gemini-2.5-pro': [1.25, 10.00],
+  'gemini-2.5-flash': [0.30, 2.50],
+  'gemini-2.5-flash-lite': [0.10, 0.40]
+};
+var COST_SHEET_NAME = 'ScanCosts';
+var COST_SHEET_HEADERS = [
+  'When', 'Source', 'RequestId', 'Model', 'Outcome',
+  'InputTokens', 'OutputTokens', 'ThinkingTokens', 'TotalTokens', 'USD'
+];
+
 function doPost(e) {
   var requestId = '';
+  var source = 'phone';
   try {
     var data = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     requestId = String(data.requestId || '');
+    // The PC names itself. The phone does not send this field, so anything
+    // unnamed is the handset. Do not infer it from the shape of requestId.
+    source = String(data.client || '') === 'pc' ? 'pc' : 'phone';
     if (!tokenOk_(data.token)) return failure_(requestId, 'bad_token');
     if (!PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY')) {
       return failure_(requestId, 'no_key');
@@ -19,6 +47,13 @@ function doPost(e) {
     if (image.error) return failure_(requestId, image.error);
     var categories = categories_(data.categories);
     var response = callGemini_(image.bytes, image.mimeType, categories);
+    // Logged whether it worked or not, and logged BEFORE the answer is
+    // checked. A call that reached Gemini and then failed on the way back was
+    // still charged for, and an attempt that never reached Gemini is worth
+    // seeing beside it as a zero. That distinction is exactly what could not
+    // be answered on 2026-08-23 about a phone scan that said "Failed to
+    // fetch": nothing recorded whether Google had been asked at all.
+    logScan_(source, requestId, response);
     if (!response.ok) return failure_(requestId, response.code, response.detail);
     var fields = normalizeFields_(response.result, categories);
     if (!fields.ok) return failure_(requestId, fields.code);
@@ -26,6 +61,82 @@ function doPost(e) {
   } catch (err) {
     return failure_(requestId, 'unknown');
   }
+}
+
+// Cost of one call. An unknown model is priced at 0 rather than guessed, and
+// still logged, so a model swap shows up as rows with a blank cost instead of
+// a plausible wrong number.
+function scanUsd_(model, usage) {
+  var rates = OCR_PRICES[String(model || '')];
+  if (!rates) return 0;
+  var input = Number((usage && usage.input) || 0);
+  var output = Number((usage && usage.output) || 0) + Number((usage && usage.thinking) || 0);
+  return (input * rates[0] + output * rates[1]) / 1000000;
+}
+
+// Never throws. A scan must not fail because its own bookkeeping did.
+function logScan_(source, requestId, response) {
+  try {
+    var sheet = costSheet_();
+    if (!sheet) return;
+    var ok = Boolean(response && response.ok);
+    var usage = (response && response.usage) || {};
+    var model = ok ? String(response.model || OCR_MODEL) : '';
+    sheet.appendRow([
+      new Date(),
+      source,
+      requestId,
+      model,
+      ok ? 'ok' : String((response && response.code) || 'unknown'),
+      Number(usage.input || 0),
+      Number(usage.output || 0),
+      Number(usage.thinking || 0),
+      Number(usage.total || 0),
+      ok ? scanUsd_(model, usage) : 0
+    ]);
+  } catch (err) {
+    // Deliberately silent here and ONLY here: this runs inside the request
+    // path and there is nothing it could usefully tell the person scanning.
+  }
+}
+
+// The log lives in its own spreadsheet, created on first use, its id kept in
+// a Script Property. This script has no business touching the mobile sync
+// Sheet, which is a separate deployment with a separate purpose.
+function costSheet_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('COST_SHEET_ID') || '';
+  var book = null;
+  if (id) {
+    try {
+      book = SpreadsheetApp.openById(id);
+    } catch (err) {
+      book = null; // deleted or trashed; a fresh one is made below
+    }
+  }
+  if (!book) {
+    book = SpreadsheetApp.create('Expense Hub receipt scan costs');
+    props.setProperty('COST_SHEET_ID', book.getId());
+  }
+  var sheet = book.getSheetByName(COST_SHEET_NAME);
+  if (!sheet) {
+    sheet = book.insertSheet(COST_SHEET_NAME);
+    sheet.appendRow(COST_SHEET_HEADERS);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+/**
+ * Run this once from the Apps Script editor (Run > showCostSheetUrl) to find
+ * where the scan cost log lives. The URL goes to the execution log rather
+ * than being served over the web, so the log is never reachable without being
+ * signed in to the account that owns it.
+ */
+function showCostSheetUrl() {
+  var sheet = costSheet_();
+  Logger.log(sheet.getParent().getUrl());
+  return sheet.getParent().getUrl();
 }
 
 function tokenOk_(token) {
