@@ -81,10 +81,42 @@ function syncCode_() {
   return PropertiesService.getScriptProperties().getProperty('SYNC_CODE') || '';
 }
 
+// Constant-time string compare. The difference is not measurable across the
+// public internet, but it costs four lines and removes the question.
+function secretsMatch_(given, expected) {
+  var a = String(given || '');
+  var b = String(expected || '');
+  if (a.length !== b.length) return false;
+  var diff = 0;
+  for (var i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+// Fails CLOSED. This used to return true when SYNC_CODE was not set, which
+// turned a web app deployed to 'anyone' into a public read/write endpoint for
+// every receipt photo and expense on the Sheet, silently, with nothing on
+// screen saying so. Same fail-open that was removed from Second Brain in
+// V8.91 for being 'very dangerous'.
+//
+// Recovery if this starts refusing everything: open the Apps Script editor,
+// Project Settings > Script Properties, and set SYNC_CODE to the same value
+// typed into each phone's Settings screen and held on the PC as line 2 of the
+// Expense Hub mobile credentials file.
 function codeOk_(param) {
   var required = syncCode_();
-  if (!required) return true; // not configured yet -- open, same as pre-1.4
-  return param === required;
+  if (!required) return false;
+  return secretsMatch_(param, required);
+}
+
+// Why the request was refused, in words, so the phone shows the real cause
+// instead of blaming the user for a code the server was never given.
+function codeError_() {
+  if (!syncCode_()) {
+    return 'This sync endpoint has no SYNC_CODE set in its Script Properties, '
+         + 'so it is refusing every request. Set SYNC_CODE in the Apps Script '
+         + 'editor under Project Settings, then use the same value here.';
+  }
+  return 'Invalid or missing sync code.';
 }
 
 function doPost(e) {
@@ -93,7 +125,7 @@ function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
     if (!codeOk_(data.code)) {
-      return respond({ ok: false, error: 'Invalid or missing sync code.' });
+      return respond({ ok: false, error: codeError_() });
     }
     if (data.action === 'push_reports') {
       return doPushReports_(data);
@@ -295,7 +327,7 @@ function doAckCaptures_(data) {
 function doGet(e) {
   var code = e.parameter && e.parameter.code;
   if (!codeOk_(code)) {
-    return respond({ ok: false, error: 'Invalid or missing sync code.' });
+    return respond({ ok: false, error: codeError_() });
   }
   // pcLastSeen rides along on both reads so the phone can say how old the
   // answer is instead of implying it is live. See notePcCheckIn_.
