@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.30">
+<meta name="application-version" content="3.31">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -187,9 +187,6 @@
     border: 0; background: none; font: inherit; font-weight: 600;
     color: #2e6ad3; text-decoration: underline; cursor: pointer;
   }
-  /* Sits beside the 44px paperclip tile, so it takes the tile's height as
-     its tap target instead of the inline link's negative margins. */
-  .act-link.paste-shot { margin: 0; padding: 0 4px; height: 44px; font-size: 14px; }
   .scan-mark { display: none; margin-left: 6px; color: var(--green); font-size: 10px; font-weight: 700; text-transform: none; letter-spacing: 0; }
   .field.scanned .scan-mark { display: inline; }
   .capture-scan-status { margin: 0 0 12px; min-height: 0; }
@@ -278,7 +275,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.30</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.31</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -352,7 +349,6 @@
           </svg>
           <input id="f-photo" type="file" accept="image/*,.pdf,application/pdf" multiple>
         </label>
-        <button type="button" class="act-link paste-shot" id="btn-paste-shot">Paste screenshot</button>
         <div class="attach-strip" id="attach-strip"></div>
       </div>
     </div>
@@ -959,68 +955,7 @@ function renderAttachStrip() {
 }
 
 document.getElementById('f-photo').addEventListener('change', async (e) => {
-  await addPhotoFiles(Array.from(e.target.files || []));
-  e.target.value = '';
-});
-
-// A phone has no Ctrl+V. The Paste screenshot link reads the clipboard
-// directly (the phone asks once for permission, or shows its own Paste
-// bubble on iPhone). It only finds a picture if one was copied first: a
-// screenshot goes to the gallery, not the clipboard, unless "Copy" was
-// chosen on it. Every outcome is said in words, never a silent nothing.
-async function pasteScreenshot() {
-  if (!navigator.clipboard || !navigator.clipboard.read) {
-    showToast('This phone browser cannot read pictures from the clipboard. Use the paperclip and pick the screenshot instead.', true);
-    return;
-  }
-  let items;
-  try {
-    items = await navigator.clipboard.read();
-  } catch (err) {
-    showToast('The phone did not allow reading the clipboard. Nothing was attached.', true);
-    return;
-  }
-  const files = [];
-  for (const item of items) {
-    const type = item.types.find((t) => t.startsWith('image/'));
-    if (!type) continue;
-    const blob = await item.getType(type);
-    files.push(new File([blob], screenshotName(type, files.length), { type: type }));
-  }
-  if (!files.length) {
-    showToast('No picture on the clipboard. Copy the screenshot first, then tap Paste screenshot.', true);
-    return;
-  }
-  await addPhotoFiles(files);
-  showToast('Screenshot attached.');
-}
-
-function screenshotName(type, index) {
-  const now = new Date();
-  const pad = (v) => String(v).padStart(2, '0');
-  const ext = (type.split('/')[1] || 'png').replace('jpeg', 'jpg');
-  return 'screenshot-' + pad(now.getDate()) + '-' + pad(now.getMonth() + 1) + '-' + now.getFullYear()
-    + '-' + pad(now.getHours()) + '-' + pad(now.getMinutes()) + '-' + pad(now.getSeconds())
-    + (index ? '-' + (index + 1) : '') + '.' + ext;
-}
-
-document.getElementById('btn-paste-shot').addEventListener('click', pasteScreenshot);
-
-// A tablet with a keyboard, or a long-press Paste outside a text box, sends
-// an ordinary paste event. A picture in it is attached the same way.
-document.addEventListener('paste', async (e) => {
-  const pasted = Array.from((e.clipboardData && e.clipboardData.files) || []).filter((f) => f.type.startsWith('image/'));
-  if (!pasted.length) return;
-  e.preventDefault();
-  if (document.getElementById('footer-capture').style.display === 'none') {
-    showToast('Open Add expense to attach a screenshot. Nothing was attached.');
-    return;
-  }
-  await addPhotoFiles(pasted.map((f, i) => (f.name && !/^image\.\w+$/i.test(f.name)) ? f : new File([f], screenshotName(f.type, i), { type: f.type })));
-  showToast('Screenshot attached.');
-});
-
-async function addPhotoFiles(files) {
+  const files = Array.from(e.target.files || []);
   for (const file of files) {
     try {
       const dataUrl = await compressImage(file);
@@ -1031,7 +966,8 @@ async function addPhotoFiles(files) {
     }
   }
   renderAttachStrip();
-}
+  e.target.value = '';
+});
 
 // ---- Report name: a real filtered picker, not a native datalist (mobile
 // browsers do not reliably show datalist suggestions at all) -------------
