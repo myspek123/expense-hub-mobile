@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.31"' in HTML
-    assert '>v3.31</span>' in HTML
+    assert 'content="3.32"' in HTML
+    assert '>v3.32</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v51" in service_worker
+    assert "eh-mobile-v52" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.20';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -297,8 +297,8 @@ def test_clearing_keeps_every_other_capture():
     remove = HTML[HTML.index("function removeCaptures(predicate)") :]
     remove = remove[: remove.index("function renderQueueActions()")]
     # filter out the matches, save the rest -- never a blanket wipe of the store
-    assert "load().filter((item) => !predicate(item) || pcOwnsCapture(item))" in remove
-    assert "save(kept)" in remove
+    assert "list.filter((item) => !predicate(item) || pcOwnsCapture(item))" in remove
+    assert "save(kept, list)" in remove
 
 
 def test_pc_deleted_capture_is_discardable_but_live_pc_line_is_protected():
@@ -394,7 +394,7 @@ def test_quick_save_asks_for_nothing_but_the_photo():
     # and deal with it later. Requiring a report type broke that (13/08/2026).
     assert "function saveCapture(opts) {" in HTML
     assert "if (!(opts && opts.quick) && !validateCapture()) return false;" in HTML
-    assert "saveCapture({ quick: true });" in HTML
+    assert "runCaptureSave({ quick: true });" in HTML
 
 
 def test_the_expense_date_is_never_rendered_by_the_browser():

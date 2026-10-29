@@ -4,7 +4,7 @@ Offline-first phone capture page for Expense Hub. Lives at:
 https://myspek123.github.io/expense-hub-mobile/
 
 Works from anywhere, no WiFi/PC dependency. Captures queue on the phone
-(localStorage) and sync to a Google Sheet whenever the phone has any signal.
+(IndexedDB, including receipt photos) and sync to a Google Sheet whenever the phone has any signal.
 
 ## One-time setup (yours to do, three steps, Google requires the human click)
 
@@ -91,3 +91,24 @@ Leaving `SYNC_CODE` unset keeps the endpoint exactly as open as it was
 before v1.3 -- nothing breaks if you don't do this today, but every request
 (phone capture, phone reports fetch, PC pull, PC push) is rejected once it
 is set unless it carries the matching code.
+
+
+## Phone storage and backup (29/10/2026, v3.32)
+
+The offline capture queue uses IndexedDB. The old localStorage queue is moved
+automatically, including every receipt and pending edit. The original is removed
+only after the database transaction commits. A failed move keeps the original
+and blocks the app with a visible recovery message. Do not clear site data.
+Small settings and the PC report/expense caches still use localStorage.
+Saving waits for a durable commit before clearing the form or starting sync.
+Expired captures remain stored; this update does not delete receipt history.
+
+Backup arrangement confirmed by Yaron on 29/10/2026: captures and receipts sync
+to the existing Google Sheet/Drive when connected. The PC copy is covered by the
+existing Expense Hub nightly backup, with 14 daily, 8 weekly and 120 monthly
+copies and the existing backup watchdog. Pending, unsent captures exist only on
+the phone; save and sync failures are shown. No new backup destination or schedule.
+
+Validation: run `python -m pytest -q tests`, plus
+`node tests/verify_storage_browser.cjs` (with Playwright installed) for migration, full-localStorage,
+offline saves, reload, transaction failure and concurrent sync regressions.

@@ -1,5 +1,5 @@
-const CACHE = 'eh-mobile-v51';
-const SHELL = ['./', './index.html', './manifest.json'];
+const CACHE = 'eh-mobile-v52';
+const SHELL = ['./', './index.html', './manifest.json', './capture-storage.js'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
