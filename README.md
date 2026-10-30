@@ -112,3 +112,14 @@ the phone; save and sync failures are shown. No new backup destination or schedu
 Validation: run `python -m pytest -q tests`, plus
 `node tests/verify_storage_browser.cjs` (with Playwright installed) for migration, full-localStorage,
 offline saves, reload, transaction failure and concurrent sync regressions.
+
+## Opening screen (29/10/2026, v3.33)
+
+Launching the phone app opens **Add expense**, even when the last tab was Sync,
+Reports or Settings. Returning to the app from the background or browser history
+also opens Add expense. This keeps the current form and receipts in memory,
+including when returning from the camera or file picker. A deliberate reload or
+pull-to-refresh keeps the current tab and open report.
+
+Run `node tests/verify_launch_browser.cjs` for launch, resume, reload and draft
+preservation checks with synthetic data and all external requests blocked.

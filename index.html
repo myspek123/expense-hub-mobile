@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.32">
+<meta name="application-version" content="3.33">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -275,7 +275,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.32</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.33</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -782,12 +782,8 @@ document.getElementById('card-save').addEventListener('click', () => {
   selectPaidChip(label);
 });
 
-// Pull-to-refresh on a phone browser is a plain page reload, and this page's
-// markup hardcodes Add expense as the active tab, so every refresh threw the
-// user back to Add expense whatever screen they were reading (2026-08-13,
-// item 10). There is no custom pull handler to fix -- the fix is that the page
-// remembers where it was. The chosen tab, and the report open inside it, are
-// written down as they change and restored on load.
+// Remember navigation for deliberate reloads (including pull-to-refresh).
+// Launching or reopening the app starts on Add expense instead (29/10/2026).
 function activateTab(name) {
   const btn = document.querySelector(`nav button[data-tab="${name}"]`);
   if (!btn) return;
@@ -821,6 +817,19 @@ function restoreLastScreen() {
   if (report) openReportDetail(openRef, report);
   else localStorage.removeItem(OPEN_REPORT_KEY);
 }
+
+function openLaunchScreen() {
+  // Do not clear the form: returning from the camera, file picker or another
+  // app must keep any unfinished expense, edit and receipt already in memory.
+  activateTab('capture');
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') openLaunchScreen();
+});
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) openLaunchScreen();
+});
 
 // The one place the expense date is written, so the text box the user reads
 // and the native picker can never disagree.
@@ -3297,7 +3306,9 @@ renderPaidChips();
 clearForm();
 updateSyncStrip();
 renderReports();
-restoreLastScreen();
+const navigation = performance.getEntriesByType('navigation')[0];
+if (navigation && navigation.type === 'reload') restoreLastScreen();
+else openLaunchScreen();
 attemptSync();
 await clearStaleScanningFlags();
 drainScanQueue();

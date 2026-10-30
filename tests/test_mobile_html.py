@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.32"' in HTML
-    assert '>v3.32</span>' in HTML
+    assert 'content="3.33"' in HTML
+    assert '>v3.33</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v52" in service_worker
+    assert "eh-mobile-v53" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.20';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -543,7 +543,7 @@ def test_edit_screen_has_one_confirmed_contextual_delete_icon():
     assert "function deleteCurrentEdit()" in HTML
 
 
-def test_refresh_returns_to_the_screen_the_user_was_on():
+def test_deliberate_refresh_returns_to_the_screen_the_user_was_on():
     # Pull-to-refresh on a phone browser is a page reload, and the markup makes
     # Add expense active, so every refresh jumped there (item 10, 13/08).
     assert "const TAB_KEY = 'eh_mobile_active_tab';" in HTML
