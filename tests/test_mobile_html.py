@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.33"' in HTML
-    assert '>v3.33</span>' in HTML
+    assert 'content="3.34"' in HTML
+    assert '>v3.34</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v53" in service_worker
+    assert "eh-mobile-v54" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.20';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -297,8 +297,16 @@ def test_clearing_keeps_every_other_capture():
     remove = HTML[HTML.index("function removeCaptures(predicate)") :]
     remove = remove[: remove.index("function renderQueueActions()")]
     # filter out the matches, save the rest -- never a blanket wipe of the store
-    assert "list.filter((item) => !predicate(item) || pcOwnsCapture(item))" in remove
+    assert "list.filter((item) => !predicate(item))" in remove
     assert "save(kept, list)" in remove
+
+
+def test_remove_what_the_pc_has_actually_removes_it():
+    # 07/11/2026: the filter used to keep every PC-owned capture whatever the
+    # predicate said, so "Remove 43 the PC already has" removed nothing.
+    remove = HTML[HTML.index("async function removeCaptures(predicate)") :]
+    remove = remove[: remove.index("function renderQueueActions()")]
+    assert "|| pcOwnsCapture(item)" not in remove
 
 
 def test_pc_deleted_capture_is_discardable_but_live_pc_line_is_protected():

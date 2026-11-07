@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.33">
+<meta name="application-version" content="3.34">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -275,7 +275,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.33</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.34</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -2089,9 +2089,15 @@ function pcOwnsCapture(item) {
 // risk. A capture the PC already holds exists somewhere else, so removing it
 // here loses nothing. A capture that was never sent exists ONLY on this phone,
 // so its receipt goes with it -- that one gets its own button and says so.
+//
+// 07/11/2026: this used to keep every capture the PC owns whatever the
+// predicate said, so "Remove N the PC already has" removed nothing at all
+// (the user saw 43 stay put). The predicate alone decides; each button's
+// predicate is re-evaluated against the current list at the moment of the
+// click, so the destructive button still never touches a PC-owned capture.
 async function removeCaptures(predicate) {
   const list = load();
-  const kept = list.filter((item) => !predicate(item) || pcOwnsCapture(item));
+  const kept = list.filter((item) => !predicate(item));
   await save(kept, list);
   renderQueue();
   updateSyncStrip();
