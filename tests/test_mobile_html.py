@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.34"' in HTML
-    assert '>v3.34</span>' in HTML
+    assert 'content="3.35"' in HTML
+    assert '>v3.35</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v54" in service_worker
+    assert "eh-mobile-v55" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.20';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -785,3 +785,12 @@ def test_amount_currency_row_gives_currency_enough_room_for_its_marker():
     assert 'class="field currency-field"' in HTML
     assert ".amount-row .currency-field { flex: 0 0 128px; }" in HTML
     assert ".amount-row .currency-field label { white-space: nowrap;" in HTML
+
+
+def test_captures_the_pc_does_not_have_are_listed_first_with_their_state_in_words():
+    # 07/11/2026: "Remove 6 not yet imported" did not say which six.
+    queue = HTML[HTML.index("function renderQueue()") :]
+    queue = queue[: queue.index("function updateSyncStrip")]
+    assert "phoneOnlyRows.concat(pcRows)" in queue
+    assert "Not on the PC (" in queue
+    assert 'class="state-pill' in queue and "state.label" in queue
