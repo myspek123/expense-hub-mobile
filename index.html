@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.37">
+<meta name="application-version" content="3.38">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -278,7 +278,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.37</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.38</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1906,6 +1906,10 @@ function matchingPcLine(item) {
 }
 
 function matchingPcLineIn(item, pcLines) {
+  return closedReportValues(findPcLineIn(item, pcLines));
+}
+
+function findPcLineIn(item, pcLines) {
   if (!item) return null;
   // Once either stable identity exists, never guess by date/amount/category:
   // that guess is how a stale 47 row can be paired with a phone's 46 draft.
@@ -1920,6 +1924,26 @@ function matchingPcLineIn(item, pcLines) {
 
 // Identity-only receipt for a capture filed into a closed PC report.
 // Never apply this sparse row to local values or resend it as an editable report.
+// 07/11/2026: a line in a closed report reaches the phone as a delivery
+// receipt only, with blank date, amount and category. Those blanks were copied
+// over the phone's own values, which left a row reading "No category" with no
+// date or amount. The receipt now carries the PC's values; a field it does not
+// carry is left undefined, so the phone keeps its own.
+function closedReportValues(pc) {
+  const receipt = captureReceipt(pc);
+  if (!receipt || !receipt.capture_receipt_only) return pc;
+  const keep = (value) => (value === '' || value === null || value === undefined ? undefined : value);
+  return Object.assign({}, pc, {
+    date: keep(receipt.date),
+    category: keep(receipt.category),
+    amount: keep(receipt.amount),
+    currency: keep(receipt.currency),
+    description: keep(receipt.description),
+    paidWith: keep(receipt.paid_with),
+    reportRef: undefined,
+  });
+}
+
 function captureReceipt(pc) {
   try {
     const receipt = JSON.parse(String((pc && pc.mobileEditResolution) || ''));
@@ -2070,6 +2094,14 @@ function fieldIsBlank(value) {
 function syncDisplayValues(item) {
   const pc = matchingPcLine(item);
   if (!pc) return item;
+  const receipt = captureReceipt(pc);
+  if (receipt && receipt.capture_receipt_only) {
+    return Object.assign({}, item, {
+      date: pc.date ?? item.date, amount: pc.amount ?? item.amount,
+      category: pc.category ?? item.category, currency: pc.currency ?? item.currency,
+      description: pc.description ?? item.description, paidWith: pc.paidWith ?? item.paidWith,
+    });
+  }
   // A successful phone-to-Sheet push can be visible there before the PC has
   // pulled the change and rewritten PCExpenses. During that short window the
   // local edit is the newest value, so do not paint the older PC snapshot over

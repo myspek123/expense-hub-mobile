@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.37"' in HTML
-    assert '>v3.37</span>' in HTML
+    assert 'content="3.38"' in HTML
+    assert '>v3.38</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v57" in service_worker
+    assert "eh-mobile-v58" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.20';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -811,3 +811,14 @@ def test_a_moved_live_expense_wins_over_an_old_capture_deletion():
     gone = HTML[HTML.index("function deletedOnPc(item)") : HTML.index("function matchingPcLine(item)")]
     live = "if (item.expId && lines.some((line) => !line.deleted && line.expId === item.expId)) return false;"
     assert gone.index(live) < gone.index("if (item.localId && lines.some(")
+
+
+def test_a_closed_report_receipt_never_blanks_the_phone_copy():
+    # 07/11/2026: a line in a closed report read "No category" with no date or
+    # amount, because the receipt's blank fields were copied over the phone's.
+    keep = HTML[HTML.index("function closedReportValues(pc)") :]
+    keep = keep[: keep.index("function captureReceipt(pc)")]
+    assert "capture_receipt_only" in keep
+    assert "? undefined : value" in keep
+    match = HTML[HTML.index("function matchingPcLineIn(item, pcLines)") :][:200]
+    assert "closedReportValues(findPcLineIn(item, pcLines))" in match
