@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.36">
+<meta name="application-version" content="3.37">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -278,7 +278,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.36</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.37</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1650,6 +1650,10 @@ async function openForEdit(localId) {
   // the report view. Keep a just-saved local edit visible until PCExpenses
   // catches up, otherwise the form jumps back to the previous PC snapshot.
   const pc = matchingPcLine(item);
+  if (captureReceipt(pc) && captureReceipt(pc).capture_receipt_only) {
+    showToast('This expense is on the PC in a closed report. Make corrections there.');
+    return;
+  }
   const pcReport = pc && !item.awaitingPcUpdate
     ? getCachedReports().find((report) => report.reportRef === pc.reportRef)
     : null;
@@ -1768,6 +1772,8 @@ function queueState(item) {
   // user hit on 2026-08-16 with a 0 EUR row he could not explain or shift.
   if (deletedOnPc(item)) return { key: 'gone', label: 'Removed on the PC' };
   const pc = matchingPcLine(item);
+  const receipt = captureReceipt(pc);
+  if (receipt) return { key: 'synced', label: pc.mobileEditConflict ? 'On PC: review there' : 'Received by PC' };
   if (pc && pc.mobileEditConflict) return { key: 'conflict', label: 'Conflict on PC' };
   // Not a conflict: this only means the phone pushed and nobody has
   // acknowledged it yet, almost always just the PC not having run. Reading it
@@ -1910,6 +1916,15 @@ function matchingPcLineIn(item, pcLines) {
   if (item.localId) return pcLines.find((line) => line.localId === item.localId) || null;
   return pcLines.find((line) => pendingKey(line.date, line.amount, line.category)
     === pendingKey(item.date, item.amount, item.category)) || null;
+}
+
+// Identity-only receipt for a capture filed into a closed PC report.
+// Never apply this sparse row to local values or resend it as an editable report.
+function captureReceipt(pc) {
+  try {
+    const receipt = JSON.parse(String((pc && pc.mobileEditResolution) || ''));
+    return receipt && receipt.capture_received === true ? receipt : null;
+  } catch (e) { return null; }
 }
 
 function pcEditAcknowledged(item, pc) {
@@ -2331,7 +2346,8 @@ function renderQueue() {
     const discard = pcOwnsCapture(item)
       ? ''
       : `<button type="button" class="iconbtn danger queue-discard" data-discard="${escapeHtml(item.localId)}" aria-label="Discard phone-only capture" title="Discard phone-only capture"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-9 0 1 13h8l1-13M10 11v5m4-5v5"/></svg></button>`;
-    const group = notOnPc ? `Not on the PC (${phoneOnlyRows.length})` : groupLabel(item);
+    const receipt = captureReceipt(matchingPcLine(item));
+    const group = notOnPc ? `Not on the PC (${phoneOnlyRows.length})` : ((receipt && receipt.report_name) || groupLabel(item));
     if (group !== lastGroup) {
       html += `<div class="band">${escapeHtml(group)}</div>`;
       lastGroup = group;
@@ -2342,7 +2358,7 @@ function renderQueue() {
     const scanError = scanErrorHintMarkup(item, state);
     const conflictText = state.key === 'conflict' ? conflictReasonLine(item) : '';
     const conflictHint = conflictText ? `<div class="hint">${escapeHtml(conflictText)}</div>` : '';
-    const statePill = notOnPc ? `<div class="state-line"><span class="state-pill state-${escapeHtml(state.key)}">${escapeHtml(state.label)}</span></div>` : '';
+    const statePill = (notOnPc || captureReceipt(matchingPcLine(item))) ? `<div class="state-line"><span class="state-pill state-${escapeHtml(state.key)}">${escapeHtml(state.label)}</span></div>` : '';
     // Item, 2026-08-23: "This report was sent on the PC. The capture stays
     // here for 30 days." repeated on every green row and said nothing the
     // green colour didn't already say. Dropped; the state icon still shows.
@@ -2406,7 +2422,7 @@ function updateSyncStrip(busyMessage) {
     strip.innerHTML = `${waiting} waiting for PC <button id="retry-btn" type="button">Sync now</button>`;
   } else {
     strip.className = 'ok';
-    strip.innerHTML = 'PC and phone agree <button id="retry-btn" type="button">Sync now</button>';
+    strip.innerHTML = 'Captures received by PC <button id="retry-btn" type="button">Sync now</button>';
   }
   document.getElementById('retry-btn').addEventListener('click', () => attemptSync(true));
 }
@@ -2482,7 +2498,7 @@ async function attemptSync(userAsked) {
   } else if (sent) {
     showToast(`Sent ${sent} to the Sheet. Waiting for PC confirmation.`);
   } else {
-    const waiting = load().filter((item) => item.awaitingPcUpdate).length;
+    const waiting = load().filter((item) => queueState(item).key === 'waiting').length;
     showToast(waiting
       ? `${waiting} change${waiting === 1 ? '' : 's'} still waiting for PC confirmation.`
       : 'Nothing was waiting to send. The PC list is up to date.');
@@ -2570,6 +2586,7 @@ async function fetchReports() {
         const pc = matchingPcLineIn(item, expenses);
         if (pc && pc.expId && item.expId !== pc.expId) { item.expId = pc.expId; changed = true; }
         if (pc && pc.pcTakenAt && !item.pcTakenAt) { item.pcTakenAt = pc.pcTakenAt; changed = true; }
+        if (captureReceipt(pc) && captureReceipt(pc).capture_receipt_only) return;
         if (pc && item.awaitingPcUpdate) {
           if (item.deleteRequested && pc.deleted) {
             item._pcDeletionConfirmed = true;

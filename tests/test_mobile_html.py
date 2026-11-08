@@ -28,10 +28,10 @@ def test_photo_is_compressed_before_any_base64_payload_is_created():
 
 
 def test_mobile_release_and_cache_version_are_bumped():
-    assert 'content="3.36"' in HTML
-    assert '>v3.36</span>' in HTML
+    assert 'content="3.37"' in HTML
+    assert '>v3.37</span>' in HTML
     service_worker = (Path(__file__).parents[1] / "sw.js").read_text(encoding="utf-8")
-    assert "eh-mobile-v56" in service_worker
+    assert "eh-mobile-v57" in service_worker
     app_script = (Path(__file__).parents[1] / "apps-script.gs").read_text(encoding="utf-8")
     assert "var VERSION = '1.20';" in app_script
     assert "EUR_AMOUNT" in app_script and "EUR_ESTIMATED" in app_script
@@ -682,7 +682,7 @@ def test_sheet_write_is_not_called_pc_confirmed_sync():
     assert "key === 'conflict'" in strip
     assert "key === 'mismatch'" in strip
     assert "waiting for PC" in strip
-    assert "PC and phone agree" in strip
+    assert "Captures received by PC" in strip
     assert "All synced" not in strip
 
 
