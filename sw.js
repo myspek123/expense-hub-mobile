@@ -1,4 +1,4 @@
-const CACHE = 'eh-mobile-v55';
+const CACHE = 'eh-mobile-v56';
 const SHELL = ['./', './index.html', './manifest.json', './capture-storage.js'];
 
 self.addEventListener('install', (event) => {

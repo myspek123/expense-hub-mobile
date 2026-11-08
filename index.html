@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.35">
+<meta name="application-version" content="3.36">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -278,7 +278,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.35</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.36</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -1879,10 +1879,20 @@ function noReceiptGlyph(item) {
 // inference from an absent line. An older Apps Script that does not send the
 // flag simply never matches here, and the phone behaves exactly as before.
 function deletedOnPc(item) {
-  if (!item.localId) return false;
-  return getCachedExpenses().some(
+  const lines = getCachedExpenses();
+  // Moving a live expense keeps its expense id, even if an old capture was removed.
+  if (item.expId && lines.some((line) => !line.deleted && line.expId === item.expId)) return false;
+  if (item.localId && lines.some(
     (line) => line.deleted && line.localId && line.localId === item.localId
-  );
+  )) return true;
+  // 07/11/2026: a phone copy that edits a PC expense may carry only the
+  // expense id. The PC now publishes it on its deletion marker, so this copy
+  // stops reading "Waiting for PC confirmation" for days while the PC refuses
+  // it. An expense id is reissued once its row is gone, so a live line with
+  // the same id always wins.
+  if (!item.expId) return false;
+  if (lines.some((line) => !line.deleted && line.expId === item.expId)) return false;
+  return lines.some((line) => line.deleted && line.expId && line.expId === item.expId);
 }
 
 function matchingPcLine(item) {
@@ -1894,7 +1904,7 @@ function matchingPcLineIn(item, pcLines) {
   // Once either stable identity exists, never guess by date/amount/category:
   // that guess is how a stale 47 row can be paired with a phone's 46 draft.
   if (item.expId) {
-    const byExpenseId = pcLines.find((line) => line.expId === item.expId);
+    const byExpenseId = pcLines.find((line) => !line.deleted && line.expId === item.expId);
     if (byExpenseId) return byExpenseId;
   }
   if (item.localId) return pcLines.find((line) => line.localId === item.localId) || null;
