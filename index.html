@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Expense Hub Mobile</title>
-<meta name="application-version" content="3.38">
+<meta name="application-version" content="3.39">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1F3864">
 <style>
@@ -122,6 +122,8 @@
   #toast.show { display: block; background: var(--amber-bg); border: 1px solid #e0c07a; color: #7a5200; }
   #toast.show.is-error { background: #fff4f2; border-color: #e9a49e; color: var(--danger); }
   #queue-list { margin-top: 4px; }
+#tab-queue.sync-empty #queue-help { display: none; }
+body:has(#tab-queue.active.sync-empty) #sync-strip.ok { display: none; }
   #queue-actions { display: flex; flex-direction: column; gap: 10px; padding: 14px 0 4px; }
   #queue-actions:empty { display: none; }
   .btn.danger { border-color: var(--danger); color: var(--danger); background: #fff; }
@@ -278,7 +280,7 @@
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.38</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.39</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -436,8 +438,10 @@
     <!-- Renamed from "Unfiled" on 13/08/2026. The old name was wrong twice
          over: this list holds captures that ARE in a report as well, and it
          never described what actually drops off it. It is the sync queue. -->
+    <div id="queue-help">
     <p class="hint">Everything this phone captured, and where it has got to. Tap one to view or edit it. Nothing is lost if the phone loses signal. A line stays here until the PC has it in a report. A capture with no report yet stays for as long as it takes, so nothing is ever quietly dropped.</p>
     <p class="hint">When a line is on the PC, this tab shows the PC's amount, category and description.</p>
+    </div>
     <div id="queue-list"></div>
     <div id="queue-actions"></div>
     <p class="hint" id="pc-last-seen"></p>
@@ -2312,10 +2316,11 @@ function renderPcLastSeen() {
 
 function renderQueue() {
   const list = queueRowsToShow();
+  document.getElementById('tab-queue').classList.toggle('sync-empty', !list.length);
   renderPcLastSeen();
   const host = document.getElementById('queue-list');
   if (!list.length) {
-    host.innerHTML = '<p class="hint">Nothing waiting. Everything this phone captured is on the PC.</p>';
+    host.innerHTML = '';
     renderQueueActions();
     return;
   }
