@@ -280,7 +280,7 @@ body:has(#tab-queue.active.sync-empty) #sync-strip.ok { display: none; }
 </head>
 <body>
 
-<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.39</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
+<header><h1>Expense Hub</h1><span class="version-stack"><span class="app-version">v3.40</span><span class="app-version" id="script-version">Apps Script unknown</span></span></header>
 <div id="sync-strip"></div>
 <nav>
   <button data-tab="capture" class="active">Add expense</button>
@@ -2471,6 +2471,27 @@ function updateSyncStrip(busyMessage) {
 // says what happened when it finishes.
 let syncInFlight = false;
 
+// Server 1.21+ takes sync reads as POST with the code in the body, never in the
+// address. Older servers file any unknown POST as a capture, so the plain
+// address (no code) is asked for its version first; once 1.21 answers, reads
+// go straight to POST for the rest of this session.
+let postReadsConfirmed = false;
+function versionAtLeast(version, major, minor) {
+  const parts = String(version || '').split('.').map(Number);
+  return parts[0] > major || (parts[0] === major && (parts[1] || 0) >= minor);
+}
+async function syncRead(url, payload, fetcher = syncFetch) {
+  if (!postReadsConfirmed) {
+    const probe = await (await syncFetch(url)).json();
+    postReadsConfirmed = versionAtLeast(probe && probe.version, 1, 21);
+  }
+  if (postReadsConfirmed) {
+    return fetcher(url, {method: 'POST', headers: {'Content-Type': 'text/plain;charset=utf-8'}, body: JSON.stringify(payload)});
+  }
+  const query = Object.keys(payload).map(k => encodeURIComponent(k) + '=' + encodeURIComponent(payload[k])).join('&');
+  return fetcher(url + (url.includes('?') ? '&' : '?') + query);
+}
+
 async function syncFetch(url, options) {
   if (typeof AbortController === 'undefined') return fetch(url, options);
   const controller = new AbortController();
@@ -2587,13 +2608,12 @@ async function fetchReports() {
     return;
   }
   const code = getSyncCode();
-  const codePart = code ? '&code=' + encodeURIComponent(code) : '';
   // Item 8: the expenses response below is the primary source for
   // pcLastSeen; this is only a fallback for a moment where one endpoint has
   // it and the other has not been redeployed yet.
   let reportsPcLastSeen = '';
   try {
-    const res = await syncFetch(url + (url.includes('?') ? '&' : '?') + 'action=reports' + codePart);
+    const res = await syncRead(url, {action: 'reports', code});
     const json = await res.json();
     rememberEndpointVersion(json);
     if (json.ok) {
@@ -2608,7 +2628,7 @@ async function fetchReports() {
     /* offline or endpoint not updated yet -- reports tab just stays on last cache */
   }
   try {
-    const res = await syncFetch(url + (url.includes('?') ? '&' : '?') + 'action=expenses' + codePart);
+    const res = await syncRead(url, {action: 'expenses', code});
     const json = await res.json();
     rememberEndpointVersion(json);
     if (json.ok) {
@@ -2914,9 +2934,7 @@ async function fetchPcReceiptDataUrl(name) {
   if (!url) throw new Error('Set the sync URL in Settings first.');
   if (!isOnline()) throw new Error('This receipt is on the PC, so it needs a connection to open.');
   const code = getSyncCode();
-  const codePart = code ? '&code=' + encodeURIComponent(code) : '';
-  const res = await fetch(url + (url.includes('?') ? '&' : '?')
-    + 'action=receipt&name=' + encodeURIComponent(name) + codePart);
+  const res = await syncRead(url, {action: 'receipt', name, code}, fetch);
   const json = await res.json();
   rememberEndpointVersion(json);
   if (!json.ok) throw new Error(json.error || 'That receipt could not be opened.');

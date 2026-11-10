@@ -1,5 +1,5 @@
 // Expense Hub Mobile -- Apps Script Web App
-// VERSION 1.20
+// VERSION 1.21
 // Paste this whole file into Extensions > Apps Script on the Google Sheet
 // created for mobile capture. Deploy > Manage deployments > edit (pencil)
 // > Version: New version > Deploy, so the URL you already pasted into the
@@ -7,20 +7,13 @@
 //
 // After redeploying, open the Web App URL directly in a browser (paste the
 // same URL from the phone's Settings field into any browser address bar).
-// The JSON response includes "version":"1.20" -- if it still says an older
+// The JSON response includes "version":"1.21" -- if it still says an older
 // number, the redeploy did not actually take and that is the bug, not the
 // code below.
 //
-// SECURITY (2026-08-01): Project Settings > Script Properties > add
-// SYNC_CODE = <a code only Yaron's and Ella's phones will ever type>. Once
-// set, every request -- phone capture, phone Reports fetch, the PC's pull
-// and push jobs -- must include that same value as `code` (a query param on
-// GET, a field in the JSON body on POST) or it is rejected. Leaving
-// SYNC_CODE unset keeps this endpoint exactly as open as it was before this
-// version, so setting it up is never a breaking change forced on you --
-// only do it when ready, then also paste the same code into each phone's
-// Settings screen and into the PC's EXPENSE_HUB_MOBILE_SYNC_CODE env var
-// (or the second line of expense_hub/credentials/mobile_sync_url.txt).
+// SECURITY: every authenticated operation uses a code in the POST body.
+// GET never returns private sync data. An unset SYNC_CODE refuses all requests.
+// Deploy this server together with the phone and PC POST transport update.
 //
 // Sheet columns (MobileCaptures, row 1, exact order):
 // Timestamp | LocalId | ReportType | ReportName | Date | Category |
@@ -71,7 +64,7 @@
 // stay on the PC only. Never edited here by
 // hand.
 
-var VERSION = '1.20';
+var VERSION = '1.21';
 var SHEET_NAME = 'MobileCaptures';
 var PC_REPORTS_SHEET_NAME = 'PCReports';
 var PC_EXPENSES_SHEET_NAME = 'PCExpenses';
@@ -126,6 +119,9 @@ function doPost(e) {
     var data = JSON.parse(e.postData.contents);
     if (!codeOk_(data.code)) {
       return respond({ ok: false, error: codeError_() });
+    }
+    if (['reports', 'expenses', 'export', 'receipt'].indexOf(data.action) !== -1) {
+      return readSync_(data);
     }
     if (data.action === 'push_reports') {
       return doPushReports_(data);
@@ -325,18 +321,18 @@ function doAckCaptures_(data) {
 }
 
 function doGet(e) {
-  var code = e.parameter && e.parameter.code;
-  if (!codeOk_(code)) {
-    return respond({ ok: false, error: codeError_() });
-  }
+  return respond({ok: false, version: VERSION, error: 'Sync reads require POST. Update the phone page and PC app.'});
+}
+
+function readSync_(data) {
   // pcLastSeen rides along on both reads so the phone can say how old the
   // answer is instead of implying it is live. See notePcCheckIn_.
-  if (e.parameter && e.parameter.action === 'reports') {
+  if (data.action === 'reports') {
     return respond({
       ok: true, version: VERSION, reports: listPCReports(), pcLastSeen: pcLastSeen_()
     });
   }
-  if (e.parameter && e.parameter.action === 'expenses') {
+  if (data.action === 'expenses') {
     return respond({
       ok: true, version: VERSION, expenses: listPCExpenses(), pcLastSeen: pcLastSeen_()
     });
@@ -345,7 +341,7 @@ function doGet(e) {
   // (expense_hub/mobile_pull.py). Each photo is re-read from Drive and
   // returned as base64 so the PC never needs its own Google API credentials
   // -- same plain-HTTPS shape the phone already uses to post here.
-  if (e.parameter && e.parameter.action === 'export') {
+  if (data.action === 'export') {
     return respond({ ok: true, version: VERSION, captures: exportCaptures() });
   }
   // A receipt captured on the PC, fetched on demand so the phone can look at
@@ -354,8 +350,8 @@ function doGet(e) {
   // Google account -- nothing is shared, no link is published, and the phone
   // stores nothing. Asked for by file name, which Expense Hub makes unique
   // (EXP-000123_2026-04-22_Meals.jpg).
-  if (e.parameter && e.parameter.action === 'receipt') {
-    return respond(receiptByName_(e.parameter.name));
+  if (data.action === 'receipt') {
+    return respond(receiptByName_(data.name));
   }
   return respond({ ok: true, version: VERSION, message: 'Expense Hub Mobile sync endpoint is live.' });
 }
